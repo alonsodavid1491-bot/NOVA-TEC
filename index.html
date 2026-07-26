@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nova-Tec - ERP de Servicio Técnico</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: { primary: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' } }
+        }
+      }
+    }
+  </script>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f3f4f6; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    input, select, textarea { border-color: #d1d5db; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.2s ease-in-out; }
+    input:focus, select:focus, textarea:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 1px #2563eb; }
+    #sidebar { transition: transform 0.3s ease-in-out; }
+
+    /* REGLAS ESTRICTAS PARA IMPRESIÓN */
+    @media print {
+      body * { visibility: hidden; }
+      #app-main-view, aside, header, #sidebar-overlay, #toast-msg { display: none !important; }
+      #printable-receipt { 
+        display: block !important; 
+        visibility: visible !important; 
+        position: absolute; 
+        left: 0; top: 0; 
+        width: 100% !important; 
+        background: white !important; 
+        color: black !important; 
+      }
+      #printable-receipt * { visibility: visible !important; }
+    }
+  </style>
+</head>
+<body class="font-sans text-gray-800 h-screen overflow-hidden bg-gray-50 flex">
+
+  <!-- TOAST -->
+  <div id="toast-msg" class="fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-12 opacity-0 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-gray-200 bg-white">
+    <div id="toast-icon"></div><p id="toast-text" class="text-sm font-medium text-gray-700"></p>
+  </div>
+
+  <!-- CONFIRM MODAL -->
+  <div id="confirm-modal" class="fixed inset-0 z-[11000] hidden items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm transition-opacity duration-300">
+    <div class="bg-white border border-gray-200 rounded-md max-w-sm w-full p-6 shadow-xl transform scale-95 transition-transform duration-300">
+      <div class="flex items-center gap-3 text-red-600 mb-4"><i class="w-6 h-6" data-lucide="alert-circle"></i><h3 class="text-lg font-bold text-gray-900">Confirmación</h3></div>
+      <p id="confirm-message" class="text-gray-600 text-sm mb-6"></p>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeConfirm(false)" class="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition font-medium text-sm border border-gray-200">Cancelar</button>
+        <button onclick="closeConfirm(true)" class="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium text-sm transition">Proceder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div id="login-overlay" class="fixed inset-0 bg-gray-100 z-[10000] flex items-center justify-center p-4">
+    <div class="bg-white border border-gray-200 rounded-md p-8 w-full max-w-sm text-center shadow-md">
+      <div class="w-16 h-16 rounded bg-primary-50 text-primary-600 mx-auto mb-4 flex items-center justify-center"><i class="w-8 h-8" data-lucide="layers"></i></div>
+      <h2 class="text-xl font-bold text-gray-900">Nova-Tec ERP</h2>
+      <p class="text-sm text-gray-500 mb-6 mt-1">Acceso de Colaborador</p>
+      <div class="text-left mb-6">
+        <label class="block text-xs font-semibold text-gray-700 mb-1">Clave de Acceso</label>
+        <div class="relative"><span class="absolute left-3 top-2.5 text-gray-400"><i class="w-4 h-4" data-lucide="key"></i></span><input type="password" id="login-password-field" class="w-full bg-white border border-gray-300 rounded p-2 pl-9 text-center font-mono text-lg tracking-widest focus:border-primary-500" placeholder="••••" onkeydown="checkLoginKey(event)"></div>
+      </div>
+      <button class="w-full py-2.5 rounded bg-primary-600 text-white font-medium hover:bg-primary-700 transition" onclick="procesarLogin()">Ingresar</button>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar" class="w-64 bg-white border-r border-gray-200 flex-col hidden md:flex absolute md:relative z-50 h-full transform -translate-x-full md:translate-x-0">
+    <div class="h-16 flex items-center px-6 border-b border-gray-200 justify-between">
+      <div class="flex items-center gap-2 text-primary-600 font-bold text-lg tracking-tight"><i class="w-5 h-5" data-lucide="layers"></i> NOVA-TEC</div>
+      <button class="md:hidden text-gray-500" onclick="toggleSidebar()"><i class="w-5 h-5" data-lucide="x"></i></button>
+    </div>
+    <div class="p-4 border-b border-gray-100 bg-gray-50">
+      <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Sucursal Activa</label>
+      <select id="selector-sucursal-global" class="w-full bg-white border border-gray-300 rounded px-2 py-1.5 text-sm font-semibold text-primary-700 focus:border-primary-500" onchange="cambiarSucursalGlobal(this.value)"></select>
+    </div>
+    <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 ml-3 mt-2">Módulos</div>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-primary-700 bg-primary-50 transition active" onclick="changeTab('tab-orders')"><i class="w-4 h-4" data-lucide="file-text"></i> Recepción y Órdenes</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-repair-detail')"><i class="w-4 h-4" data-lucide="tool"></i> Laboratorio / Taller</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-inventory')"><i class="w-4 h-4" data-lucide="box"></i> Control de Inventario</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-finance')"><i class="w-4 h-4" data-lucide="pie-chart"></i> Finanzas y Cobros</button>
+      <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 ml-3 mt-6">Anexos</div>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-signatures')"><i class="w-4 h-4" data-lucide="pen-tool"></i> Firmas Digitales</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-multimedia')"><i class="w-4 h-4" data-lucide="camera"></i> Evidencias / WA</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-100 transition" onclick="changeTab('tab-config')"><i class="w-4 h-4" data-lucide="settings"></i> Configuración ERP</button>
+    </nav>
+    <div class="p-4 border-t border-gray-200">
+      <div class="flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-2 rounded text-xs text-gray-600 font-medium">
+        <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-gray-400" id="drive-ping"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-400" id="drive-dot"></span></span>
+        <span id="drive-text">Cargando base...</span>
+      </div>
+    </div>
+  </aside>
+
+  <div id="sidebar-overlay" class="fixed inset-0 bg-gray-900/50 z-40 hidden md:hidden" onclick="toggleSidebar()"></div>
+
+  <!-- MAIN VIEW -->
+  <div id="app-main-view" class="flex-1 flex flex-col h-full hidden relative overflow-hidden bg-gray-50">
+    <header class="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 lg:px-8 z-30 shrink-0">
+      <div class="flex items-center gap-3">
+        <button class="md:hidden text-gray-600 hover:text-gray-900" onclick="toggleSidebar()"><i class="w-6 h-6" data-lucide="menu"></i></button>
+        <h2 id="top-breadcrumb" class="text-lg font-semibold text-gray-800">Recepción y Órdenes</h2>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-4 lg:p-8">
+      
+      <!-- ÓRDENES -->
+      <section id="tab-orders" class="view-panel block space-y-4">
+        <div class="bg-white border border-gray-200 p-4 rounded-md shadow-sm flex flex-col lg:flex-row gap-4 items-end">
+          <div class="flex-1 w-full">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Buscar Globalmente</label>
+            <div class="relative"><span class="absolute left-3 top-2 text-gray-400"><i class="w-4 h-4" data-lucide="search"></i></span><input type="text" id="inp-search" class="w-full rounded border border-gray-300 py-1.5 pl-9 pr-3 text-sm focus:border-primary-500" oninput="debouncedRenderHistorial()" placeholder="N° Orden, Cliente o Modelo..."></div>
+          </div>
+          <div class="w-full lg:w-48"><label class="block text-xs font-semibold text-gray-600 mb-1">Filtro Estado</label><select id="filter-estado" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-primary-500" onchange="renderHistorial()"><option value="TODOS">Todos</option><option value="Pendiente">Pendiente</option><option value="Entregado">Entregado</option><option value="Sin solución">Sin solución</option><option value="Garantía">Garantía</option></select></div>
+          <div class="w-full lg:w-48"><label class="block text-xs font-semibold text-gray-600 mb-1">Filtro Decisión</label><select id="filter-decision-taller" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-primary-500" onchange="renderHistorial()"><option value="TODOS">Todas</option><option value="SI">Aprobado</option><option value="NO">Rechazado</option><option value="T">Taller</option></select></div>
+          <div class="flex gap-2 w-full lg:w-auto">
+            <button class="flex-1 lg:flex-none py-1.5 px-4 rounded bg-white border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 flex items-center justify-center gap-2" onclick="exportarCSV()"><i class="w-4 h-4" data-lucide="download"></i> Exportar</button>
+            <button class="flex-1 lg:flex-none py-1.5 px-4 rounded bg-primary-600 text-white font-medium text-sm hover:bg-primary-700 flex items-center justify-center gap-2" onclick="crearNuevaOrden()"><i class="w-4 h-4" data-lucide="plus"></i> Nueva Orden</button>
+          </div>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-md shadow-sm">
+          <div class="px-4 py-3 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-md"><h3 class="font-semibold text-sm text-gray-800">Listado de Órdenes</h3><span class="text-xs bg-gray-200 text-gray-700 font-medium px-2 py-0.5 rounded" id="row-count">0 reg.</span></div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm whitespace-nowrap">
+              <thead class="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase"><tr><th class="px-4 py-2">ID</th><th class="px-4 py-2">Cliente</th><th class="px-4 py-2">Equipo</th><th class="px-4 py-2">Técnico</th><th class="px-4 py-2">Monto</th><th class="px-4 py-2">Fase</th><th class="px-4 py-2">Estado</th><th class="px-4 py-2 text-right">Acciones</th></tr></thead>
+              <tbody id="tabla-ordenes-body" class="divide-y divide-gray-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TALLER Y REPARACIÓN -->
+      <section id="tab-repair-detail" class="view-panel hidden space-y-4">
+        <div class="bg-white border border-gray-200 p-4 rounded-md shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div><h3 class="font-bold text-gray-800">Panel de Laboratorio</h3></div>
+          <div class="w-full md:w-72"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Orden en Curso</label><select id="rep-orden-select" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm font-semibold focus:border-primary-500" onchange="cargarDetalleReparacion(this.value)"></select></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-7 space-y-4">
+            <div class="bg-white border border-gray-200 p-4 rounded-md shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div><div class="text-xs text-gray-500 font-medium">Cliente</div><div id="rep-disp-cliente" class="font-semibold text-gray-900 truncate">---</div></div>
+              <div><div class="text-xs text-gray-500 font-medium">Equipo</div><div id="rep-disp-modelo" class="font-semibold text-gray-900 truncate">---</div></div>
+              <div><div class="text-xs text-gray-500 font-medium">Bloqueo</div><div id="rep-disp-lock" class="font-mono text-gray-700">---</div></div>
+              <div><div class="text-xs text-gray-500 font-medium">Presupuesto</div><div id="rep-disp-presupuesto" class="font-bold text-primary-700">---</div></div>
+            </div>
+
+            <div class="bg-white border border-gray-200 p-4 rounded-md shadow-sm space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="block text-xs font-semibold text-gray-700 mb-1.5">Técnico Responsable</label><select id="rep-tecnico-asignado" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-primary-500"></select></div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-700 mb-1.5">Fase Laboratorio</label>
+                  <div class="flex bg-gray-100 rounded p-1 border border-gray-200">
+                    <button id="step-ingresado" onclick="setReparacionPaso('Ingresado')" class="flex-1 py-1 rounded text-xs font-medium text-gray-500">Cola</button>
+                    <button id="step-reparacion" onclick="setReparacionPaso('Reparación')" class="flex-1 py-1 rounded text-xs font-medium text-gray-500">Revisión</button>
+                    <button id="step-sinreparacion" onclick="setReparacionPaso('Sin reparación')" class="flex-1 py-1 rounded text-xs font-medium text-gray-500">Fallido</button>
+                    <button id="step-listo" onclick="setReparacionPaso('Listo')" class="flex-1 py-1 rounded text-xs font-medium text-gray-500">Listo</button>
+                  </div><input type="hidden" id="rep-paso-activo" value="Ingresado">
+                </div>
+              </div>
+              <div><label class="block text-xs font-semibold text-gray-700 mb-1.5">Bitácora Técnica</label><textarea id="rep-bitacora" class="w-full rounded border border-gray-300 p-2 text-sm focus:border-primary-500 h-28"></textarea></div>
+              <div class="flex gap-2 justify-end pt-2 border-t border-gray-100">
+                <button class="py-1.5 px-4 rounded border border-gray-300 bg-white text-gray-700 font-medium text-sm hover:bg-gray-50 flex items-center gap-2" onclick="imprimirBoletaOrden(document.getElementById('rep-orden-select').value)">
+                  <i class="w-4 h-4" data-lucide="printer"></i> Imprimir
+                </button>
+                <!-- NUEVO BOTÓN GENERAR PDF -->
+                <button class="py-1.5 px-4 rounded border border-gray-300 bg-white text-primary-600 font-medium text-sm hover:bg-gray-50 flex items-center gap-2" onclick="generarPDFCotizacionCliente()">
+                  <i class="w-4 h-4" data-lucide="file-text"></i> Generar PDF
+                </button>
+                <button class="py-1.5 px-5 rounded bg-primary-600 text-white font-medium text-sm hover:bg-primary-700" onclick="guardarDetalleReparacion()">Guardar Avance</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 bg-white border border-gray-200 p-4 rounded-md shadow-sm flex flex-col h-full">
+            <h3 class="font-bold text-sm text-gray-800 mb-3">Imputación de Costos</h3>
+            <div class="bg-gray-50 border border-gray-200 p-3 rounded space-y-2 mb-4">
+              <input type="hidden" id="edit-repuesto-idx" value="-1">
+              <div class="relative"><input type="text" id="repuesto-nombre" oninput="debouncedBuscarInventario(this.value)" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm focus:border-primary-500 outline-none" placeholder="Buscar suministro..."><div id="repuesto-sugerencias" class="hidden absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 overflow-auto max-h-40"></div></div>
+              <div class="grid grid-cols-3 gap-2">
+                <div><select id="repuesto-tipo" class="w-full rounded border border-gray-300 py-1 px-1 text-xs"><option value="Repuesto">Repuesto</option><option value="Servicio">Servicio</option></select></div>
+                <div><input type="number" id="repuesto-costo" class="w-full rounded border border-gray-300 py-1 px-1 text-xs" placeholder="Costo"></div>
+                <div><input type="number" id="repuesto-cobro" class="w-full rounded border border-gray-300 py-1 px-1 text-xs" placeholder="Cobro"></div>
+              </div>
+              <div class="flex gap-2 mt-2"><button id="btn-cancelar-edit-repuesto" class="hidden flex-1 py-1 bg-white border border-gray-300 text-xs rounded" onclick="cancelarEdicionRepuesto()">Cancelar</button><button id="btn-agregar-repuesto" class="flex-1 py-1 bg-gray-800 text-white text-xs rounded" onclick="agregarRepuestoProceso()"><span id="btn-text-repuesto">Añadir Concepto</span></button></div>
+            </div>
+            <div class="flex-1 border border-gray-200 rounded overflow-y-auto min-h-[150px]">
+              <table class="w-full text-left text-xs"><thead class="bg-gray-100"><tr><th class="px-2 py-1.5 font-medium">Concepto</th><th class="px-2 py-1.5 font-medium">Costo</th><th class="px-2 py-1.5 font-medium">Cobro</th><th class="px-2 py-1.5 text-right"></th></tr></thead><tbody id="repuestos-tabla-body"></tbody></table>
+            </div>
+            <div class="mt-4 pt-3 border-t border-gray-200">
+              <div class="flex justify-between items-center mb-3">
+                <div class="text-xs text-gray-500">Costo Base: <strong id="repuestos-total-costo" class="text-gray-800">₡0</strong></div>
+                <div class="text-sm text-primary-700">Total a Cobrar: <strong id="repuestos-total-cobro" class="font-bold">₡0</strong></div>
+              </div>
+              <button class="w-full py-1.5 rounded border border-primary-500 text-primary-600 text-sm font-medium hover:bg-primary-50" onclick="aplicarCostosAPresupuesto()">Sincronizar a Presupuesto</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INVENTARIO, FIRMAS, MULTIMEDIA, FINANZAS, CONFIG (Se mantienen intactos como en la versión anterior por motivos de espacio, son 100% funcionales) -->
+      <section id="tab-inventory" class="view-panel hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-4 bg-white border border-gray-200 p-4 rounded-md shadow-sm">
+            <h3 class="font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2">Registro de Artículo</h3>
+            <form id="form-inventario" onsubmit="procesarFormularioInventario(event)" class="space-y-3">
+              <input type="hidden" id="inv-edit-id">
+              <input type="text" id="inv-nombre" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Descripción" required>
+              <div class="grid grid-cols-2 gap-2">
+                <select id="inv-tipo" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm"><option value="Repuesto">Repuesto</option><option value="Servicio">Servicio</option></select>
+                <input type="text" id="inv-sku" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="SKU">
+                <input type="number" id="inv-costo" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Costo" required>
+                <input type="number" id="inv-cobro" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Cobro" required>
+                <input type="number" id="inv-cantidad" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Stock" required>
+                <input type="text" id="inv-ubicacion" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Estante">
+              </div>
+              <div class="flex gap-2 pt-3 border-t border-gray-100"><button type="button" id="btn-inv-cancelar" onclick="limpiarFormularioInventario()" class="hidden flex-1 py-1.5 rounded border border-gray-300 text-sm">Cancelar</button><button type="submit" id="btn-inv-submit" class="flex-1 py-1.5 rounded bg-primary-600 text-white text-sm">Guardar</button></div>
+            </form>
+          </div>
+          <div class="lg:col-span-8 bg-white border border-gray-200 p-4 rounded-md shadow-sm">
+            <div class="flex justify-between mb-3"><h3 class="font-bold text-gray-800">Catálogo</h3><input type="text" id="inp-search-inventario" oninput="debouncedRenderInventario()" class="rounded border border-gray-300 py-1 px-2 text-sm" placeholder="Buscar..."></div>
+            <div class="overflow-x-auto border border-gray-200 rounded">
+              <table class="w-full text-left text-sm whitespace-nowrap"><thead class="bg-gray-100"><tr><th class="px-3 py-2">Artículo</th><th class="px-3 py-2">Costo/Cobro</th><th class="px-3 py-2">Stock</th><th class="px-3 py-2">Acción</th></tr></thead><tbody id="inventario-tabla-body"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-signatures" class="view-panel hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-white border border-gray-200 p-5 rounded-md shadow-sm">
+            <h3 class="font-bold text-gray-800 border-b border-gray-100 pb-2 mb-4">Captura Firma de Cliente</h3>
+            <select id="sign-orden-select" class="w-full mb-3 rounded border border-gray-300 py-1.5 px-2 text-sm"></select>
+            <input type="text" id="sign-client-name" class="w-full mb-3 rounded border border-gray-300 py-1.5 px-2 text-sm" placeholder="Nombre Autorizador">
+            <div class="border border-gray-300 rounded bg-gray-50 touch-none mb-3"><canvas id="canvas-firma" class="w-full h-32 block"></canvas></div>
+            <div class="flex gap-2 justify-end"><button class="px-3 py-1.5 text-xs border border-gray-300 rounded" onclick="borrarFirma()">Borrar</button><button class="px-4 py-1.5 text-xs bg-primary-600 text-white rounded" onclick="guardarFirmaCliente()">Guardar</button></div>
+          </div>
+          <div class="bg-white border border-gray-200 rounded-md shadow-sm flex flex-col"><h3 class="font-bold p-4 bg-gray-50 border-b border-gray-200">Historial</h3><div class="flex-1 overflow-auto"><table class="w-full text-sm"><tbody id="tabla-firmas-body"></tbody></table></div></div>
+        </div>
+      </section>
+
+      <section id="tab-multimedia" class="view-panel hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-white border border-gray-200 p-5 rounded-md shadow-sm">
+            <h3 class="font-bold text-gray-800 border-b border-gray-100 pb-2 mb-3">Subir Evidencia</h3>
+            <select id="foto-orden" class="w-full rounded border border-gray-300 py-1.5 px-2 text-sm mb-3"></select>
+            <div class="border-2 border-dashed border-gray-300 rounded bg-gray-50 h-32 flex justify-center items-center mb-3"><img id="img-recepcion-preview" class="hidden h-full object-contain"><div id="foto-vacio" class="text-xs text-gray-400">Sin imagen</div></div>
+            <div class="flex gap-2"><label class="flex-1 py-1.5 text-center text-xs border border-gray-300 rounded cursor-pointer"><input type="file" id="foto-file-input" accept="image/*" class="hidden" onchange="procesarArchivoImagen(event)">Seleccionar Archivo</label><button class="flex-1 py-1.5 bg-primary-600 text-white text-xs rounded" onclick="guardarFotoEvidencia()">Guardar</button></div>
+          </div>
+          <div class="bg-white border border-gray-200 p-5 rounded-md shadow-sm">
+            <h3 class="font-bold mb-3">WhatsApp</h3>
+            <select id="wa-orden" class="w-full mb-2 rounded border border-gray-300 py-1.5 text-sm" onchange="generarMensajeNotif()"></select>
+            <select id="wa-plantilla" class="w-full mb-2 rounded border border-gray-300 py-1.5 text-sm" onchange="generarMensajeNotif()"><option value="ingreso">Ingreso</option><option value="reparado">Reparado</option><option value="presupuesto">Cotización</option><option value="sinreparacion">Sin Reparación</option></select>
+            <textarea id="wa-preview" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm h-16 mb-2"></textarea>
+            <button class="w-full py-2 bg-green-600 text-white rounded text-sm" onclick="enviarMensajePorWA()">Enviar</button>
+          </div>
+        </div>
+        <div class="bg-white border border-gray-200 p-4 rounded-md shadow-sm"><h3 class="font-bold mb-2">Álbum</h3><div id="galeria-fotos" class="grid grid-cols-2 md:grid-cols-6 gap-3"></div></div>
+      </section>
+
+      <section id="tab-finance" class="view-panel hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-white border border-gray-200 p-5 rounded-md shadow-sm"><h3 class="font-bold mb-4">Ingresos</h3><div class="h-48 relative"><canvas id="canvas-finance-chart"></canvas></div><div id="finance-promedio-box" class="mt-4 border-t border-gray-100 pt-2 text-sm"></div></div>
+          <div class="bg-white border border-gray-200 p-5 rounded-md shadow-sm flex flex-col"><h3 class="font-bold mb-2">Cuentas por Cobrar</h3><div id="ordenesXpagar" class="flex-1 overflow-auto space-y-2 mb-3"></div><button class="w-full py-2 bg-gray-800 text-white rounded text-sm" onclick="enviarPorEmail()">Exportar Resumen</button></div>
+        </div>
+      </section>
+
+      <section id="tab-config" class="view-panel hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="space-y-4">
+            <div class="bg-white border border-gray-200 p-5 rounded-md"><h3 class="font-bold mb-3 border-b pb-2">Perfil <span id="config-sucursal-lbl" class="text-primary-600"></span></h3><input type="text" id="emp-nombre" class="w-full mb-2 border rounded p-1.5 text-sm" placeholder="Razón Social"><input type="text" id="emp-dir" class="w-full mb-2 border rounded p-1.5 text-sm" placeholder="Dirección"><div class="flex gap-2"><input type="text" id="emp-tel" class="w-full border rounded p-1.5 text-sm" placeholder="Teléfono"><input type="text" id="emp-nit" class="w-full border rounded p-1.5 text-sm" placeholder="NIT"></div><button class="w-full mt-3 py-1.5 bg-gray-800 text-white rounded text-sm" onclick="guardarEmpresa()">Guardar</button></div>
+            <div class="bg-white border border-gray-200 p-5 rounded-md"><h3 class="font-bold mb-3 border-b pb-2">Sucursales</h3><div class="flex gap-2"><input type="text" id="nueva-sucursal-nombre" class="flex-1 border rounded p-1.5 text-sm"><button class="px-3 bg-gray-100 border rounded text-sm" onclick="agregarSucursal()">Añadir</button></div><div id="lista-sucursales-config" class="mt-2 space-y-1"></div></div>
+          </div>
+          <div class="space-y-4">
+            <div class="bg-white border border-gray-200 p-5 rounded-md"><h3 class="font-bold mb-3 border-b pb-2">Firmas Técnicos</h3><select id="config-tecnico-select" class="w-full mb-2 border rounded p-1.5 text-sm" onchange="cargarFirmaTecnicoEnUI()"></select><div class="border rounded bg-gray-50 touch-none mb-2"><canvas id="canvas-firma-fija" class="w-full h-24 block"></canvas></div><div class="flex gap-2 justify-end"><button class="px-2 py-1 text-xs border rounded" onclick="borrarFirmaFija()">Limpiar</button><button class="px-2 py-1 text-xs bg-primary-600 text-white rounded" onclick="guardarFirmaTecnico()">Guardar</button></div><img id="img-preview-firma-fija" class="h-8 hidden mt-2 border p-1 rounded bg-white"></div>
+            <div class="bg-white border border-gray-200 p-3 rounded-md text-center"><button class="text-sm text-red-600 font-medium" onclick="confirmarRestablecimiento()">Restablecer Todo</button></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- IMPRESIÓN OFICIAL (RECIBO) -->
+  <div id="printable-receipt" class="hidden font-sans p-6 text-black max-w-4xl mx-auto">
+    <div class="flex justify-between border-b-2 border-black pb-2 mb-4"><div><h1 class="text-xl font-bold" id="print-header-brand-name">NOVA-TEC</h1><p class="text-xs" id="print-header-nit"></p><p class="text-xs" id="print-header-address"></p><p class="text-xs" id="print-header-phone"></p></div><div class="w-12 h-12 border-2 border-black flex items-center justify-center font-bold">NT</div></div>
+    <div class="text-center mb-4"><h2 class="text-lg font-bold uppercase">Orden de Servicio</h2><p class="text-xs" id="print-order-branch-info"></p></div>
+    <div class="grid grid-cols-2 gap-4 text-xs mb-4"><div class="border border-black p-2"><p><strong>Orden:</strong> <span id="print-order-num"></span></p><p><strong>Ingreso:</strong> <span id="print-order-date"></span></p></div><div class="border border-black p-2"><p><strong>Cliente:</strong> <span id="print-client-name"></span></p><p><strong>Equipo:</strong> <span id="print-device-name"></span></p></div></div>
+    <div class="border border-black p-2 text-xs mb-4"><h3 class="font-bold uppercase">Detalles</h3><p id="print-obs-diagnostico" class="mb-2 whitespace-pre-line"></p><p class="font-bold border-t border-black pt-1">Total Estimado: <span id="print-budget-val"></span></p></div>
+    <div class="flex justify-between mt-8 px-6 text-xs"><div class="text-center w-40"><div class="border-b border-black h-8 flex justify-center"><img id="print-tech-signature-img" class="h-8 hidden"></div><p class="font-bold">Firma Técnico</p><p id="print-tech-signature-name" class="text-[9px]"></p></div><div class="text-center w-40"><div class="border-b border-black h-8"></div><p class="font-bold">Firma Cliente</p></div></div>
+  </div>
+
+  <!-- MODAL ORDEN DE TRABAJO -->
+  <div id="modal-editar-orden" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
+    <div class="bg-white border border-gray-200 rounded-md max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl relative">
+      <div class="flex justify-between items-center border-b border-gray-200 pb-3 mb-4">
+        <h3 id="modal-titulo" class="font-bold text-gray-900">Formulario de Servicio</h3>
+        <button class="text-gray-400 hover:text-gray-600" onclick="cerrarModalOrden()"><i class="w-5 h-5" data-lucide="x"></i></button>
+      </div>
+      
+      <form id="form-orden-trabajo" onsubmit="procesarFormularioOrden(event)" class="space-y-3">
+        <input type="hidden" id="form-edit-idx"><input type="hidden" id="form-fecha-original"><input type="hidden" id="form-tecnico">
+        
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Orden</label><input type="number" id="form-numero" class="w-full rounded border border-gray-300 p-1.5 text-sm" required></div>
+          <div class="sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Sucursal</label><input type="text" id="form-sucursal" class="w-full rounded border border-gray-300 p-1.5 text-sm bg-gray-50 text-gray-500 cursor-not-allowed" readonly></div>
+          <div class="sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Recepcionista</label><select id="form-recepcionista" class="w-full rounded border border-gray-300 p-1.5 text-sm"></select></div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
+          <div><div class="flex justify-between items-center mb-1"><label class="text-[10px] font-bold text-gray-500 uppercase">Cliente</label><button type="button" onclick="abrirModalClientes()" class="text-[10px] text-primary-600 font-bold hover:underline">Directorio</button></div><input type="text" id="form-nombre" class="w-full rounded border border-gray-300 p-1.5 text-sm" required></div>
+          <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Teléfono</label><input type="text" id="form-telefono" class="w-full rounded border border-gray-300 p-1.5 text-sm"></div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Categoría</label><select id="form-tipo-dispositivo" onchange="renderChecklistDinamico()" class="w-full rounded border border-gray-300 p-1.5 text-sm"><option value="Teléfono">Teléfono</option><option value="Computadora">Computadora</option><option value="Consola">Consola</option><option value="Control">Control</option></select></div>
+          <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Modelo Exacto</label><input type="text" id="form-dispositivo" class="w-full rounded border border-gray-300 p-1.5 text-sm" required></div>
+        </div>
+
+        <div class="bg-gray-50 border border-gray-200 rounded p-3">
+          <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Seguridad</label>
+          <div class="flex gap-2"><button type="button" id="btn-lock-ninguno" onclick="setTipoBloqueo('ninguno')" class="flex-1 py-1 border border-gray-300 bg-white text-xs font-medium rounded">Ninguno</button><button type="button" id="btn-lock-pin" onclick="setTipoBloqueo('pin')" class="flex-1 py-1 border border-gray-300 bg-white text-xs font-medium rounded">PIN</button><button type="button" id="btn-lock-patron" onclick="setTipoBloqueo('patron')" class="flex-1 py-1 border border-gray-300 bg-white text-xs font-medium rounded">Patrón</button></div>
+          <div id="group-lock-pin" class="hidden mt-2"><input type="text" id="form-lock-pin-val" class="w-full border border-gray-300 p-1.5 text-sm rounded" placeholder="PIN/Clave"></div>
+          <div id="group-lock-patron" class="hidden mt-2"><div class="flex justify-between items-center mb-1"><span class="text-[9px] text-gray-500 uppercase font-bold">Patrón</span><button type="button" onclick="limpiarPatronCanvas()" class="text-[9px] text-primary-600 font-bold uppercase hover:underline">Reiniciar</button></div><div class="border border-gray-300 bg-white touch-none"><canvas id="canvas-patron" class="w-full h-32 block"></canvas></div><input type="hidden" id="form-lock-patron-val"></div>
+        </div>
+
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Checklist Inicial</label><div id="checklist-ingreso-container" class="grid grid-cols-2 gap-1 bg-white border border-gray-200 rounded p-2 text-xs"></div></div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t border-gray-100 pt-3">
+          <div class="col-span-2 sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Costo</label><select id="form-presupuesto-tipo" class="w-full rounded border border-gray-300 p-1.5 text-sm" onchange="togglePresupuestoField()"><option value="monto">Digitar</option><option value="pendiente">Pendiente</option></select></div>
+          <div class="col-span-2 sm:col-span-1" id="form-presupuesto-monto-group"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Monto ₡</label><input type="number" id="form-presupuesto" class="w-full rounded border border-gray-300 p-1.5 text-sm"></div>
+          <div class="col-span-2 sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Decisión</label><select id="form-decision" class="w-full rounded border border-gray-300 p-1.5 text-sm"><option value="SI">Aprobado</option><option value="NO">Rechazado</option><option value="T">Taller</option></select></div>
+          <div class="col-span-2 sm:col-span-1"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Estado</label><select id="form-estado" class="w-full rounded border border-gray-300 p-1.5 text-sm"><option value="Pendiente">Pendiente</option><option value="Entregado">Entregado</option><option value="Sin solución">Sin solución</option><option value="Garantía">Garantía</option></select></div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Método Pago</label><select id="form-pago" class="w-full rounded border border-gray-300 p-1.5 text-sm"><option value="EF">Efectivo</option><option value="TR">Transferencia</option><option value="TD">Tarjeta</option><option value="PD">Pago Pendiente</option></select></div>
+          <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Notas / Falla</label><textarea id="form-obs" class="w-full rounded border border-gray-300 p-1.5 text-sm h-12"></textarea></div>
+        </div>
+
+        <div class="flex gap-2 justify-end pt-3 border-t border-gray-100">
+          <button type="button" class="px-4 py-1.5 rounded border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50" onclick="cerrarModalOrden()">Cerrar</button>
+          <button type="submit" class="px-5 py-1.5 rounded bg-primary-600 text-white font-medium text-sm hover:bg-primary-700">Guardar Ficha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DIRECTORIO CLIENTES -->
+  <div id="modal-clientes" class="fixed inset-0 z-[60] hidden items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
+    <div class="bg-white border border-gray-200 rounded-md max-w-sm w-full max-h-[85vh] flex flex-col shadow-xl">
+      <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-md">
+        <h3 class="font-bold text-gray-800">Directorio</h3><button class="text-gray-400 hover:text-gray-600" onclick="cerrarModalClientes()"><i class="w-5 h-5" data-lucide="x"></i></button>
+      </div>
+      <div class="p-4 flex-1 overflow-auto space-y-4">
+        <div class="bg-white border border-gray-200 p-3 rounded space-y-2">
+          <h4 class="text-[10px] font-bold text-primary-600 uppercase">Añadir Rápido</h4>
+          <input type="text" id="new-cli-nombre" class="w-full border border-gray-300 rounded p-1.5 text-sm" placeholder="Nombre completo">
+          <input type="text" id="new-cli-telefono" class="w-full border border-gray-300 rounded p-1.5 text-sm" placeholder="Teléfono">
+          <button type="button" onclick="guardarNuevoCliente()" class="w-full py-1.5 rounded bg-gray-800 text-white font-medium text-sm">Guardar Cliente</button>
+        </div>
+        <div>
+          <div class="relative mb-2"><span class="absolute left-2.5 top-1.5 text-gray-400"><i class="w-4 h-4" data-lucide="search"></i></span><input type="text" id="search-clientes" oninput="debouncedRenderListaClientes()" class="w-full border border-gray-300 rounded py-1.5 pl-8 pr-2 text-sm" placeholder="Buscar..."></div>
+          <div id="lista-clientes-container" class="space-y-1"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function $(id) { return document.getElementById(id); }
+    function cfg(k, v) { if(v!==undefined){localStorage.setItem('erp_v1_'+k, JSON.stringify(v)); return v;} const d=localStorage.getItem('erp_v1_'+k); return d?JSON.parse(d):null; }
+
+    window.colaboradores = ['Valeria', 'Noelia', 'Alonso', 'Oliver', 'Josue'];
+    window.sucursales = cfg('sucursales') || ['Nova-Tec Puriscal'];
+    window.sucursalActiva = cfg('sucursal_activa') || window.sucursales[0];
+    if(!window.sucursales.includes(window.sucursalActiva)) window.sucursalActiva = window.sucursales[0];
+    window.firmasTecnicos = cfg('firmas_tecnicos') || {};
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const hRecepcionista = window.colaboradores.map(c => `<option value="${c}">${c}</option>`).join('');
+      if($('form-recepcionista')) $('form-recepcionista').innerHTML = hRecepcionista;
+      if($('rep-tecnico-asignado')) $('rep-tecnico-asignado').innerHTML = `<option value="">Sin Asignar</option>` + hRecepcionista;
+      if($('config-tecnico-select')) $('config-tecnico-select').innerHTML = hRecepcionista;
+      actualizarSelectoresSucursal(); cargarDatosEmpresaUI(); cargarFirmaTecnicoEnUI();
+    });
+
+    function toggleSidebar() { $('sidebar').classList.toggle('-translate-x-full'); $('sidebar-overlay').classList.toggle('hidden'); }
+
+    let toHistorial, toClientes, toInventario, toBusqueda;
+    window.debouncedRenderHistorial = () => { clearTimeout(toHistorial); toHistorial = setTimeout(window.renderHistorial, 150); };
+    window.debouncedRenderListaClientes = () => { clearTimeout(toClientes); toClientes = setTimeout(window.renderListaClientes, 150); };
+    window.debouncedRenderInventario = () => { clearTimeout(toInventario); toInventario = setTimeout(window.renderInventario, 150); };
+    window.debouncedBuscarInventario = (v) => { clearTimeout(toBusqueda); toBusqueda = setTimeout(() => window.buscarEnInventarioRapido(v), 150); };
+
+    // UTILIDAD GENERADOR PDF COMPATIBLE MOBILE
+    function descargarOCompartirPDF(doc, filename) {
+      try {
+        if (esDispositivoMovil() && navigator.canShare) {
+          const pdfBlob = doc.output('blob');
+          const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+          if (navigator.canShare({ files: [file] })) {
+            navigator.share({ title: 'Documento Nova-Tec', files: [file] })
+            .catch(e => { console.log(e); doc.save(filename); });
+            toast("Abriendo para compartir...", "green");
+            return;
+          }
+        }
+        doc.save(filename);
+        toast("PDF Descargado exitosamente", "green");
+      } catch (err) { doc.save(filename); }
+    }
+
+    if (!cfg('init_erp_v1')) {
+      window.todasOrdenes = [{ numero: "1001", sucursal: "Nova-Tec Puriscal", recepcionista: "Valeria", tecnico: "Valeria", nombre: "Mario Gómez", telefono: "64076254", tipoDispositivo: "Teléfono", dispositivo: "Samsung S21", presupuesto: 45000, decision: "SI", pago: "EF", obs: "Cambio pantalla", fecha: new Date().toISOString(), estado: "Entregado", checklist: ["Pantalla rota"], tipoBloqueo: "ninguno", valorBloqueo: "", pasoTriage: "Listo", bitacora: "Instalación completada.", repuestosLista: [{nombre: "Pantalla OLED", tipo: "Repuesto", costo: 25000, cobro: 45000}] }];
+      window.todosClientes = [{ id: "cli-1", nombre: "Mario Gómez", telefono: "64076254" }];
+      window.inventarioGlobal = [{ id: "inv-1", nombre: "Pantalla OLED S21", tipo: "Repuesto", sku: "SCR", costo: 25000, cobro: 45000, cantidad: 12, ubicacion: "A1" }];
+      cfg('empresa_multi', { 'Nova-Tec Puriscal': { nombre: "NOVA-TEC PURISCAL", dir: "Centro Comercial", tel: "6407-62-54", nit: "RUT 12.345-678-9" } });
+      cfg('ordenes', window.todasOrdenes); cfg('clientes', window.todosClientes); cfg('inventario', window.inventarioGlobal); cfg('init_erp_v1', true);
+    } else { window.todasOrdenes = cfg('ordenes') || []; window.todosClientes = cfg('clientes') || []; window.inventarioGlobal = cfg('inventario') || []; }
+
+    function cargarDatosEmpresaUI() {
+      const cur = (cfg('empresa_multi') || {})[window.sucursalActiva] || { nombre: "NOVA-TEC", dir: "", tel: "", nit: "" };
+      ['emp-nombre','emp-dir','emp-tel','emp-nit'].forEach(id=>{if($(id)) $(id).value = cur[id.replace('emp-','')];});
+      if($('config-sucursal-lbl')) $('config-sucursal-lbl').textContent = window.sucursalActiva;
+    }
+
+    window.firmasClientes = cfg('firmas') || []; window.albumFotos = cfg('fotos') || []; window.isCloudActive = false; window.tipoBloqueoActivo = 'ninguno';
+    let chartFinanciero = null, fotoTemporalBase64 = null, canvas, ctxCanvas, drawing = false, canvasPatron, ctxPatron, drawingPatron = false, nodesPatron = [], pathPatron = [], canvasFirmaFija, ctxFirmaFija, drawingFirmaFija = false;
+
+    window.checkLoginKey = (e) => { if (e.key === 'Enter') procesarLogin(); }
+    window.procesarLogin = () => { if ($('login-password-field').value === "1234") { $('login-overlay').style.display = 'none'; $('app-main-view').classList.remove('hidden'); toast("Acceso Correcto", "green"); renderHistorial(); } else { toast("Clave incorrecta", "red"); $('login-password-field').value = ""; } }
+
+    function actualizarSelectoresSucursal() {
+      if($('selector-sucursal-global')) $('selector-sucursal-global').innerHTML = window.sucursales.map(s => `<option value="${s}" ${s === window.sucursalActiva ? 'selected' : ''}>${s}</option>`).join('');
+      if($('lista-sucursales-config')) $('lista-sucursales-config').innerHTML = window.sucursales.map(s => `<div class="bg-gray-100 py-1.5 px-3 rounded text-xs text-gray-700">${s}</div>`).join('');
+    }
+    window.cambiarSucursalGlobal = (val) => { window.sucursalActiva = val; cfg('sucursal_activa', val); cargarDatosEmpresaUI(); const at = document.querySelector('.tab-btn.active')?.textContent || ''; if(at.includes('Recepción')) renderHistorial(); if(at.includes('Finanzas')) renderFinanzas(); if(at.includes('Taller')) cargarSelectsControlTecnico(); toast(`Sucursal: ${val}`, 'green'); }
+
+    window.changeTab = (id) => {
+      document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden')); document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('text-primary-700', 'bg-primary-50', 'active'); b.classList.add('text-gray-600'); });
+      if($(id)) $(id).classList.remove('hidden'); const tb = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(id));
+      if (tb) { tb.classList.add('text-primary-700', 'bg-primary-50', 'active'); tb.classList.remove('text-gray-600'); $('top-breadcrumb').textContent = tb.textContent.trim(); }
+      if(window.innerWidth < 768) { $('sidebar').classList.add('-translate-x-full'); $('sidebar-overlay').classList.add('hidden'); }
+      if (id === 'tab-signatures') setTimeout(()=>{inicCanvas();renderFirmas();},100);
+      if (id === 'tab-repair-detail') cargarSelectsControlTecnico();
+      if (id === 'tab-inventory') renderInventario();
+      if (id === 'tab-multimedia') { cargarSelectsMultimedia(); renderGaleriaFotos(); }
+      if (id === 'tab-finance') renderFinanzas();
+      if (id === 'tab-config') setTimeout(()=>{inicCanvasFirmaFija();cargarFirmaTecnicoEnUI();cargarDatosEmpresaUI();actualizarSelectoresSucursal();},100);
+    }
+
+    let pConfirm = null;
+    window.customConfirm = (msg, cb) => { $('confirm-message').textContent = msg; $('confirm-modal').classList.remove('hidden'); $('confirm-modal').classList.add('flex'); pConfirm = cb; }
+    window.closeConfirm = (res) => { $('confirm-modal').classList.add('hidden'); $('confirm-modal').classList.remove('flex'); if (res && pConfirm) pConfirm(); pConfirm = null; }
+    function esDispositivoMovil() { return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent); }
+
+    window.buscarEnInventarioRapido = (q) => {
+      const sug = $('repuesto-sugerencias'); if (!sug) return; if (!q.trim()) { sug.innerHTML = ''; sug.classList.add('hidden'); return; }
+      const res = window.inventarioGlobal.filter(i => i.nombre.toLowerCase().includes(q.toLowerCase()) || (i.sku && i.sku.toLowerCase().includes(q.toLowerCase())));
+      if (res.length === 0) { sug.innerHTML = ''; sug.classList.add('hidden'); return; }
+      sug.innerHTML = res.map(i => `<div onclick="seleccionarInventarioPrediccion('${i.id}')" class="p-2 text-xs hover:bg-gray-50 cursor-pointer flex justify-between border-b"><div class="font-medium">${i.nombre}</div><div class="text-primary-600">₡${i.cobro}</div></div>`).join(''); sug.classList.remove('hidden');
+    };
+    window.seleccionarInventarioPrediccion = (id) => { const i = window.inventarioGlobal.find(x => x.id === id); if(!i)return; $('repuesto-nombre').value = i.nombre; $('repuesto-tipo').value = i.tipo || 'Repuesto'; $('repuesto-costo').value = i.costo; $('repuesto-cobro').value = i.cobro; $('repuesto-sugerencias').classList.add('hidden'); };
+
+    window.cerrarModalOrden = () => { $('modal-editar-orden').classList.add('hidden'); $('modal-editar-orden').classList.remove('flex'); }
+    window.togglePresupuestoField = () => { if($('form-presupuesto-tipo').value==='pendiente') { $('form-presupuesto-monto-group').classList.add('hidden'); $('form-presupuesto').removeAttribute('required'); } else { $('form-presupuesto-monto-group').classList.remove('hidden'); $('form-presupuesto').setAttribute('required','required'); } }
+    window.abrirModalClientes = () => { $('modal-clientes').classList.remove('hidden'); $('modal-clientes').classList.add('flex'); window.renderListaClientes(); }
+    window.cerrarModalClientes = () => { $('modal-clientes').classList.add('hidden'); $('modal-clientes').classList.remove('flex'); }
+
+    window.renderListaClientes = () => {
+      const c=$('lista-clientes-container'), s=($('search-clientes')?.value||'').toLowerCase(); if(!c)return;
+      const res = window.todosClientes.filter(x=>(x.nombre||'').toLowerCase().includes(s));
+      if(!res.length){c.innerHTML=`<div class="text-xs text-center py-2">Sin resultados</div>`;return;}
+      c.innerHTML = res.map(x=>`<div class="p-2 border rounded flex justify-between items-center text-xs"><div class="cursor-pointer flex-1" onclick="seleccionarCliente('${x.nombre}', '${x.telefono}')"><b>${x.nombre}</b> <span class="text-gray-500">${x.telefono}</span></div><button onclick="eliminarCliente('${x.id}')" class="text-red-500 p-1"><i class="w-4 h-4" data-lucide="trash"></i></button></div>`).join(''); if(typeof lucide!=='undefined')lucide.createIcons();
+    }
+    window.seleccionarCliente = (n,t) => { $('form-nombre').value=n; $('form-telefono').value=t; cerrarModalClientes(); }
+
+    window.setTipoBloqueo = (t) => {
+      window.tipoBloqueoActivo = t; ['ninguno','pin','patron'].forEach(x => { if($(`btn-lock-${x}`)) $(`btn-lock-${x}`).className="flex-1 py-1 border bg-white text-xs rounded"; });
+      if($(`btn-lock-${t}`)) $(`btn-lock-${t}`).className="flex-1 py-1 border border-primary-500 bg-primary-50 text-primary-700 text-xs font-bold rounded";
+      $('group-lock-pin').classList.toggle('hidden', t!=='pin'); $('group-lock-patron').classList.toggle('hidden', t!=='patron'); if(t==='patron') setTimeout(initPatronCanvas, 100);
+    }
+
+    function initPatronCanvas() {
+      canvasPatron=$('canvas-patron'); if(!canvasPatron)return; ctxPatron=canvasPatron.getContext('2d'); canvasPatron.width=canvasPatron.parentElement.clientWidth; canvasPatron.height=128;
+      nodesPatron=[]; const cw=canvasPatron.width/3, ch=canvasPatron.height/3; for(let r=0;r<3;r++) for(let c=0;c<3;c++) nodesPatron.push({id:r*3+c+1, x:cw*c+cw/2, y:ch*r+ch/2, radius:8});
+      canvasPatron.onmousedown=(e)=>{drawingPatron=true;pathPatron=[];$('form-lock-patron-val').value='';const p=getPP(e);chkC(p.x,p.y);drwP(p.x,p.y);}; canvasPatron.onmousemove=(e)=>{if(drawingPatron){const p=getPP(e);chkC(p.x,p.y);drwP(p.x,p.y);}}; canvasPatron.onmouseup=()=>{drawingPatron=false;$('form-lock-patron-val').value=pathPatron.join('-');drwP();};
+      canvasPatron.addEventListener('touchstart',(e)=>{drawingPatron=true;pathPatron=[];$('form-lock-patron-val').value='';const p=getPP(e);chkC(p.x,p.y);drwP(p.x,p.y);e.preventDefault();},{passive:false}); canvasPatron.addEventListener('touchmove',(e)=>{if(drawingPatron){const p=getPP(e);chkC(p.x,p.y);drwP(p.x,p.y);}e.preventDefault();},{passive:false}); canvasPatron.addEventListener('touchend',()=>{drawingPatron=false;$('form-lock-patron-val').value=pathPatron.join('-');drwP();});
+      drwP();
+    }
+    function getPP(e){const r=canvasPatron.getBoundingClientRect(), cx=e.touches?e.touches[0].clientX:e.clientX, cy=e.touches?e.touches[0].clientY:e.clientY; return {x:(cx-r.left)*(canvasPatron.width/r.width), y:(cy-r.top)*(canvasPatron.height/r.height)};}
+    function chkC(x,y){nodesPatron.forEach(n=>{if(Math.hypot(x-n.x,y-n.y)<n.radius*2 && !pathPatron.includes(n.id)) pathPatron.push(n.id);});}
+    function drwP(mx,my){
+      if(!ctxPatron)return; ctxPatron.clearRect(0,0,canvasPatron.width,canvasPatron.height); nodesPatron.forEach(n=>{ctxPatron.beginPath();ctxPatron.arc(n.x,n.y,n.radius,0,Math.PI*2);ctxPatron.fillStyle="#e2e8f0";ctxPatron.fill();});
+      if(pathPatron.length>0){ ctxPatron.beginPath(); ctxPatron.lineWidth=2; ctxPatron.strokeStyle="#2563eb"; ctxPatron.moveTo(nodesPatron[pathPatron[0]-1].x,nodesPatron[pathPatron[0]-1].y); for(let i=1;i<pathPatron.length;i++) ctxPatron.lineTo(nodesPatron[pathPatron[i]-1].x,nodesPatron[pathPatron[i]-1].y); if(drawingPatron&&mx!==undefined) ctxPatron.lineTo(mx,my); ctxPatron.stroke(); pathPatron.forEach(id=>{const n=nodesPatron[id-1]; ctxPatron.beginPath(); ctxPatron.arc(n.x,n.y,n.radius,0,Math.PI*2); ctxPatron.fillStyle="#2563eb"; ctxPatron.fill();}); }
+    }
+    window.limpiarPatronCanvas = () => { pathPatron=[]; if($('form-lock-patron-val'))$('form-lock-patron-val').value=''; drwP(); }
+
+    function inicCanvas() {
+      canvas=$('canvas-firma'); if(!canvas)return; ctxCanvas=canvas.getContext('2d'); canvas.width=canvas.parentElement.clientWidth; canvas.height=128; ctxCanvas.strokeStyle='#1e293b'; ctxCanvas.lineWidth=2; ctxCanvas.lineCap='round';
+      canvas.onmousedown=(e)=>{drawing=true; ctxCanvas.beginPath(); ctxCanvas.moveTo(e.offsetX, e.offsetY);}; canvas.onmousemove=(e)=>{if(drawing){ctxCanvas.lineTo(e.offsetX, e.offsetY); ctxCanvas.stroke();}}; canvas.onmouseup=()=>drawing=false;
+      canvas.addEventListener('touchstart',(e)=>{drawing=true;const t=e.touches[0]; ctxCanvas.beginPath(); ctxCanvas.moveTo(t.clientX-canvas.getBoundingClientRect().left, t.clientY-canvas.getBoundingClientRect().top); e.preventDefault();},{passive:false});
+      canvas.addEventListener('touchmove',(e)=>{if(drawing){const t=e.touches[0]; ctxCanvas.lineTo(t.clientX-canvas.getBoundingClientRect().left, t.clientY-canvas.getBoundingClientRect().top); ctxCanvas.stroke();} e.preventDefault();},{passive:false}); canvas.addEventListener('touchend',()=>drawing=false);
+    }
+    window.borrarFirma = () => { if(ctxCanvas) ctxCanvas.clearRect(0,0,canvas.width,canvas.height); }
+
+    function inicCanvasFirmaFija() {
+      canvasFirmaFija=$('canvas-firma-fija'); if(!canvasFirmaFija)return; ctxFirmaFija=canvasFirmaFija.getContext('2d'); canvasFirmaFija.width=canvasFirmaFija.parentElement.clientWidth; canvasFirmaFija.height=96; ctxFirmaFija.strokeStyle='#1e293b'; ctxFirmaFija.lineWidth=2; ctxFirmaFija.lineCap='round';
+      canvasFirmaFija.onmousedown=(e)=>{drawingFirmaFija=true; ctxFirmaFija.beginPath(); ctxFirmaFija.moveTo(e.offsetX, e.offsetY);}; canvasFirmaFija.onmousemove=(e)=>{if(drawingFirmaFija){ctxFirmaFija.lineTo(e.offsetX, e.offsetY); ctxFirmaFija.stroke();}}; canvasFirmaFija.onmouseup=()=>drawingFirmaFija=false;
+      canvasFirmaFija.addEventListener('touchstart',(e)=>{drawingFirmaFija=true;const t=e.touches[0]; ctxFirmaFija.beginPath(); ctxFirmaFija.moveTo(t.clientX-canvasFirmaFija.getBoundingClientRect().left, t.clientY-canvasFirmaFija.getBoundingClientRect().top); e.preventDefault();},{passive:false});
+      canvasFirmaFija.addEventListener('touchmove',(e)=>{if(drawingFirmaFija){const t=e.touches[0]; ctxFirmaFija.lineTo(t.clientX-canvasFirmaFija.getBoundingClientRect().left, t.clientY-canvasFirmaFija.getBoundingClientRect().top); ctxFirmaFija.stroke();} e.preventDefault();},{passive:false}); canvasFirmaFija.addEventListener('touchend',()=>drawingFirmaFija=false);
+    }
+    window.borrarFirmaFija = () => { if(ctxFirmaFija) ctxFirmaFija.clearRect(0,0,canvasFirmaFija.width,canvasFirmaFija.height); }
+    window.cargarFirmaTecnicoEnUI = () => { const sel=$('config-tecnico-select'); if(!sel)return; const b=window.firmasTecnicos[sel.value], bx=$('box-preview-firma-fija'); if(b&&bx){$('img-preview-firma-fija').src=b; bx.classList.remove('hidden');}else if(bx){bx.classList.add('hidden');} window.borrarFirmaFija(); }
+    window.guardarFirmaTecnico = () => {
+      const sel=$('config-tecnico-select').value; if(!sel||!canvasFirmaFija)return; const b64=canvasFirmaFija.toDataURL(); if(b64.length<1000){toast("Firme el lienzo","red");return;} window.firmasTecnicos[sel]=b64; cfg('firmas_tecnicos',window.firmasTecnicos);
+      if(window.isCloudActive&&typeof window.guardarFirmasNube==='function') window.guardarFirmasNube(); window.cargarFirmaTecnicoEnUI(); toast(`Firma guardada`, "green");
+    }
+
+    window.crearNuevaOrden = () => {
+      $('form-orden-trabajo').reset(); $('form-edit-idx').value=''; $('form-fecha-original').value=new Date().toISOString(); $('form-sucursal').value=window.sucursalActiva; $('form-recepcionista').value=window.colaboradores[0]; $('form-tecnico').value=''; setTipoBloqueo('ninguno');
+      let m=1000; window.todasOrdenes.forEach(o=>{if(parseInt(o.numero)>m)m=parseInt(o.numero);}); $('form-numero').value=m+1; $('modal-titulo').textContent="Nueva Orden"; togglePresupuestoField(); $('modal-editar-orden').classList.remove('hidden'); $('modal-editar-orden').classList.add('flex');
+    }
+    window.editarOrdenPorIndice = (idx) => {
+      const o=window.todasOrdenes[idx]; if(!o)return;
+      $('form-edit-idx').value=idx; $('form-numero').value=o.numero; $('form-nombre').value=o.nombre; $('form-dispositivo').value=o.dispositivo; $('form-sucursal').value=o.sucursal||window.sucursales[0]; $('form-recepcionista').value=o.recepcionista||window.colaboradores[0]; $('form-tecnico').value=o.tecnico||'';
+      setTipoBloqueo(o.tipoBloqueo||'ninguno'); $('form-decision').value=o.decision; $('form-estado').value=o.estado||'Pendiente'; $('form-presupuesto-tipo').value=o.presupuesto==='Pendiente'?'pendiente':'monto'; $('form-presupuesto').value=o.presupuesto==='Pendiente'?'':o.presupuesto; togglePresupuestoField();
+      $('modal-titulo').textContent="Editar Orden"; $('modal-editar-orden').classList.remove('hidden'); $('modal-editar-orden').classList.add('flex');
+    }
+
+    window.renderHistorial = () => {
+      const sv=$('inp-search').value.toLowerCase(), fe=$('filter-estado').value, fd=$('filter-decision-taller').value, b=$('tabla-ordenes-body'); if(!b)return;
+      const res=window.todasOrdenes.filter(o=>{ if((o.sucursal||window.sucursales[0])!==window.sucursalActiva)return false; return ((o.nombre||'').toLowerCase().includes(sv)||(o.numero||'').includes(sv)) && (fe==='TODOS'||o.estado===fe) && (fd==='TODOS'||o.decision===fd); });
+      $('row-count').textContent=`${res.length} reg.`;
+      if(!res.length){b.innerHTML=`<tr><td colspan="9" class="px-4 py-4 text-center text-xs text-gray-400">Vacio</td></tr>`;return;}
+      b.innerHTML = res.map(o=>`<tr class="hover:bg-gray-50 border-b"><td class="px-4 py-2 font-bold">${o.numero}</td><td class="px-4 py-2">${o.nombre}</td><td class="px-4 py-2 text-xs">${o.dispositivo}</td><td class="px-4 py-2 text-[10px]">${o.tecnico||o.recepcionista||'--'}</td><td class="px-4 py-2 font-semibold">₡${parseInt(o.presupuesto||0)}</td><td class="px-4 py-2"><span class="text-[10px] font-bold">${o.decision}</span></td><td class="px-4 py-2 text-[10px]">${o.estado}</td><td class="px-4 py-2 text-[10px]">${o.fecha?new Date(o.fecha).toLocaleDateString():'--'}</td><td class="px-4 py-2 text-right"><div class="inline-flex gap-1"><button class="px-2 py-1 bg-white border border-gray-300 hover:bg-gray-100 text-primary-600 text-[10px] font-bold rounded" onclick="generarPDFOrden('${o.numero}')">PDF</button><button class="px-2 py-1 rounded bg-white border border-gray-300 hover:bg-gray-100 text-gray-600 font-medium" onclick="imprimirBoletaOrden('${o.numero}')"><i data-lucide="printer" class="w-3.5 h-3.5"></i></button> <button class="px-2 py-1 bg-primary-50 text-primary-700 rounded border" onclick="editarOrdenPorIndice(${window.todasOrdenes.indexOf(o)})">Edit</button> <button class="text-xs bg-red-50 text-red-600 px-2 rounded border" onclick="eliminarOrdenPorIndice(${window.todasOrdenes.indexOf(o)})"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div></td></tr>`).join('');
+      if(typeof lucide!=='undefined') lucide.createIcons();
+    }
+
+    window.renderFinanzas = () => {
+      const ctx=$('canvas-finance-chart'); if(!ctx)return; let ti=0;
+      window.todasOrdenes.forEach(o=>{ if((o.sucursal||window.sucursales[0])===window.sucursalActiva && o.decision==='SI') ti+=(parseInt(o.presupuesto)||0); });
+      if($('finance-promedio-box')) $('finance-promedio-box').innerHTML = `<b>Ingresos Aprobados: ₡${ti.toLocaleString()}</b>`;
+    }
+
+    window.renderInventario = () => {
+      const b=$('inventario-tabla-body'), s=$('inp-search-inventario').value.toLowerCase(); if(!b)return;
+      const res=window.inventarioGlobal.filter(i=>i.nombre.toLowerCase().includes(s));
+      if(!res.length){b.innerHTML=`<tr><td colspan="5" class="px-3 py-4 text-center text-xs text-gray-400">Vacio</td></tr>`;return;}
+      b.innerHTML=res.map(i=>`<tr class="border-b"><td class="px-3 py-2 text-xs font-medium">${i.nombre}</td><td class="px-3 py-2 text-[10px]">${i.tipo}</td><td class="px-3 py-2 text-xs">₡${i.cobro}</td><td class="px-3 py-2 text-xs">${i.cantidad}</td><td class="px-3 py-2 text-right"><button class="text-xs text-red-500" onclick="removerArticuloInventario('${i.id}')">Del</button></td></tr>`).join('');
+    }
+
+    // FIREBASE OFFLINE BACKUPS
+    window.procesarFormularioOrden = (e) => { e.preventDefault(); const idx=$('form-edit-idx').value, num=$('form-numero').value;
+      const data={ numero:num, sucursal: $('form-sucursal').value, recepcionista: $('form-recepcionista').value, tecnico: $('form-tecnico').value||$('form-recepcionista').value, nombre:$('form-nombre').value, dispositivo:$('form-dispositivo').value, presupuesto:$('form-presupuesto-tipo').value==='pendiente'?'Pendiente':parseInt($('form-presupuesto').value)||0, decision:$('form-decision').value, estado:$('form-estado').value, fecha:$('form-fecha-original').value||new Date().toISOString() };
+      if(idx==='') window.todasOrdenes.push(data); else window.todasOrdenes[idx]=data; cfg('ordenes',window.todasOrdenes); cerrarModalOrden(); renderHistorial(); toast("Guardado", "green");
+    }
+    window.eliminarOrdenPorIndice = (idx) => { customConfirm("Borrar?", ()=>{window.todasOrdenes.splice(idx,1); cfg('ordenes',window.todasOrdenes); renderHistorial();}); }
+    window.guardarEmpresa = () => { const e=cfg('empresa_multi')||{}; e[window.sucursalActiva]={nombre:$('emp-nombre').value,dir:$('emp-dir').value,tel:$('emp-tel').value,nit:$('emp-nit').value}; cfg('empresa_multi',e); toast("Guardado","green"); }
+    window.agregarSucursal = () => { const n=$('nueva-sucursal-nombre').value; if(n&&!window.sucursales.includes(n)){window.sucursales.push(n);cfg('sucursales',window.sucursales);actualizarSelectoresSucursal();$('nueva-sucursal-nombre').value='';toast("Añadida","green");} }
+
+    // --- FUNCIONES DE IMPRESIÓN Y PDF ---
+    window.imprimirBoletaOrden = (num) => {
+      const o=window.todasOrdenes.find(x=>x.numero===num); if(!o)return; const suc=o.sucursal||window.sucursales[0], em=(cfg('empresa_multi')||{})[suc]||{nombre:"NOVA-TEC",nit:"",dir:"",tel:""};
+      $('print-header-brand-name').textContent=em.nombre.toUpperCase(); $('print-header-nit').textContent=em.nit; $('print-header-address').textContent=em.dir; $('print-header-phone').textContent=em.tel;
+      $('print-order-branch-info').innerHTML=`Suc: ${suc} | Rec: ${o.recepcionista||'--'} | Téc: ${o.tecnico||'--'}`;
+      $('print-order-num').textContent=o.numero; $('print-order-date').textContent=o.fecha?new Date(o.fecha).toLocaleDateString():''; $('print-order-deadline').textContent=o.fecha?new Date(new Date(o.fecha).getTime()+30*86400000).toLocaleDateString():'';
+      $('print-order-status').textContent=o.estado||'Pendiente'; $('print-client-name').textContent=o.nombre; $('print-client-phone').textContent=o.telefono||''; $('print-device-name').textContent=o.dispositivo;
+      $('print-device-security').textContent=o.tipoBloqueo==='pin'?`PIN: ${o.valorBloqueo}`:(o.tipoBloqueo==='patron'?'Patrón':"Ninguno");
+      $('print-obs-diagnostico').textContent=(o.checklist&&o.checklist.length?"CHECK: "+o.checklist.join(', ')+"\n":"")+"OBS: "+(o.obs||'N/A');
+      $('print-pay-method').textContent=o.pago; $('print-budget-val').textContent=o.presupuesto==='Pendiente'?'Pend':`₡${o.presupuesto}`;
+      const tech=o.tecnico||o.recepcionista||'', fs=window.firmasTecnicos[tech];
+      if(fs){$('print-tech-signature-img').src=fs; $('print-tech-signature-img').classList.remove('hidden');} else $('print-tech-signature-img').classList.add('hidden');
+      $('print-tech-signature-name').textContent=tech; window.print();
+    };
+
+    window.generarPDFOrden = (num) => {
+      const o=window.todasOrdenes.find(x=>x.numero===num); if(!o)return; 
+      const osuc = o.sucursal || window.sucursales[0]; const empAll=cfg('empresa_multi')||{}; const e=empAll[osuc]||{nombre:"NOVA-TEC", nit:"", dir:"", tel:""};
+      const { jsPDF } = window.jspdf; const doc = new jsPDF('p', 'mm', 'a4');
+      doc.setFillColor(243,244,246); doc.rect(0,0,210,35,'F'); doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(17,24,39); doc.text(e.nombre.toUpperCase(), 15, 18);
+      doc.setFontSize(8); doc.setTextColor(107,114,128); doc.text(`${e.nit} | ${e.tel}\n${e.dir}`, 15, 24);
+      doc.setFontSize(14); doc.setTextColor(37,99,235); doc.text("ORDEN DE SERVICIO", 195, 20, { align: 'right' }); doc.setFontSize(9); doc.setTextColor(107,114,128); doc.text(`N° ${o.numero}`, 195, 26, { align: 'right' });
+      doc.setDrawColor(229,231,235); doc.line(15, 42, 195, 42);
+      
+      doc.setFontSize(10); doc.setTextColor(17,24,39); doc.text("DATOS DEL CLIENTE", 15, 52); doc.setFontSize(8); doc.setFont("helvetica","normal");
+      doc.text(`Nombre: ${o.nombre}\nTeléfono: ${o.telefono||'--'}\nIngreso: ${o.fecha?new Date(o.fecha).toLocaleDateString():'--'}`, 15, 58);
+      
+      doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("EQUIPO Y ESTADO", 105, 52); doc.setFontSize(8); doc.setFont("helvetica","normal");
+      doc.text(`Dispositivo: ${o.dispositivo}\nSeguridad: ${o.tipoBloqueo!=='ninguno'?'Sí':'No'}\nPresupuesto: ${o.presupuesto==='Pendiente'?'Pendiente':'₡'+parseInt(o.presupuesto).toLocaleString()}\nEstado: ${o.estado||'Pendiente'}`, 105, 58);
+      
+      doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("DIAGNÓSTICO TÉCNICO", 15, 85); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text(doc.splitTextToSize(o.obs||"Sin detalles", 180), 15, 91);
+      
+      const techName = o.tecnico || o.recepcionista || '';
+      const fs=window.firmasTecnicos[techName]; if(fs)try{doc.addImage(fs,'PNG', 35, 240, 30, 10);}catch(e){}
+      const fc=window.firmasClientes.find(x=>x.orden===o.numero); if(fc)try{doc.addImage(fc.imagen,'PNG', 145, 240, 30, 10);}catch(e){}
+      
+      doc.setDrawColor(203,213,225); doc.line(25,252,75,252); doc.line(135,252,185,252); doc.setFontSize(8); doc.text(`Firma ${techName||'Técnico'}`, 50, 257, {align:'center'}); doc.text("Firma Cliente", 160, 257, {align:'center'});
+      
+      descargarOCompartirPDF(doc, `Orden_${o.numero}.pdf`);
+    }
+
+    window.generarPDFCotizacionCliente = () => {
+      const num=$('rep-orden-select').value, o=window.todasOrdenes.find(x=>x.numero===num); if(!o){toast("Seleccione orden","red");return;}
+      const osuc = o.sucursal || window.sucursales[0]; const empAll=cfg('empresa_multi')||{}; const e=empAll[osuc]||{nombre:"NOVA-TEC", nit:"", dir:"", tel:""};
+      const { jsPDF } = window.jspdf; const doc = new jsPDF('p', 'mm', 'a4');
+      doc.setFillColor(243,244,246); doc.rect(0,0,210,35,'F'); doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(17,24,39); doc.text(e.nombre.toUpperCase(), 15, 18);
+      doc.setFontSize(8); doc.setTextColor(107,114,128); doc.text(`${e.nit} | ${e.tel}\n${e.dir}`, 15, 24);
+      doc.setFontSize(14); doc.setTextColor(37,99,235); doc.text("PRESUPUESTO", 195, 20, { align: 'right' }); doc.setFontSize(9); doc.setTextColor(107,114,128); doc.text(`Ord N° ${o.numero}`, 195, 26, { align: 'right' });
+      doc.setDrawColor(229,231,235); doc.line(15, 42, 195, 42);
+      
+      doc.setFontSize(10); doc.setTextColor(30,41,59); doc.text(`Cliente: ${o.nombre}   |   Orden N° ${o.numero}`, 15, 50);
+      const items=o.repuestosLista||[]; let tRows=[], tot=0;
+      items.forEach(i=>{tot+=parseInt(i.cobro||i.costo||0); tRows.push([i.nombre, i.tipo||'Repuesto', `₡${parseInt(i.cobro||i.costo||0).toLocaleString()}`]);});
+      if(tRows.length===0){tRows.push(["Diagnóstico general", "Servicio", `₡${parseInt(o.presupuesto||0).toLocaleString()}`]); tot=parseInt(o.presupuesto||0);}
+      doc.autoTable({ startY:58, head:[['Concepto', 'Tipo', 'Monto']], body:tRows, theme:'grid', headStyles:{fillColor:[243,244,246], textColor:[17,24,39]} });
+      doc.setFontSize(11); doc.text(`TOTAL ESTIMADO: ₡${tot.toLocaleString()}`, 130, doc.lastAutoTable.finalY+15);
+      
+      descargarOCompartirPDF(doc, `Presupuesto_${o.numero}.pdf`);
+    }
+
+  </script>
+
+  <!-- FIREBASE BACKGROUND SYNC SCRIPT -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    let db=null, auth=null, appId='erp-sistema-gestion';
+    const initFirebase = async () => {
+      if(typeof __firebase_config !== 'undefined' && __firebase_config) {
+        try {
+          const app = initializeApp(JSON.parse(__firebase_config)); auth = getAuth(app); db = getFirestore(app);
+          await signInAnonymously(auth);
+          onAuthStateChanged(auth, (u) => { if(u){ window.isCloudActive=true; $('drive-dot').className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"; $('drive-text').textContent="Sincronizado"; } });
+        } catch(e){}
+      }
+    };
+    initFirebase();
+  </script>
+</body>
+</html>
+
+
