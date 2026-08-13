@@ -1674,7 +1674,9 @@
           else if(p==='presupuesto')t=`Hola ${o.nombre}, presupuesto de ${o.dispositivo} (N° ${o.numero}): ₡${parseInt(o.presupuesto||0).toLocaleString('en-US')}. Atte. ${em.nombre}`; 
           else t=`Hola ${o.nombre}, equipo sin reparación (N° ${o.numero}). Puede retirarlo. Atte. ${em.nombre}`; 
           
-          t += `\n\n🔍 Siga el estado de su orden aquí:\nhttps://nova-tec.web.app/status?id=${o.numero}`; 
+          const urlReal = window.location.origin + window.location.pathname;
+t += `\n\n🔍 Siga el estado de su orden aquí:\n${urlReal}?id=${o.numero}`;
+
           pr.value=t; 
         };
 
