@@ -1093,7 +1093,8 @@
             if (pass === "15271527") { window.rolUsuarioActivo = "Admin"; } 
             else if (pass === "5678") { window.rolUsuarioActivo = "Recepcion"; } 
             else if (pass === "9000") { window.rolUsuarioActivo = "Tecnico"; } 
-            else { window.toast("Clave incorrecta (Usa 15271527, 5678 o 9000)", "red"); passField.value = ""; return; }
+            else { window.toast("Acceso denegado: Clave de operador incorrecta", "red"); passField.value = ""; return; }
+
 
             window.$('login-overlay').style.display = 'none';
             window.$('app-main-view').classList.remove('hidden');
