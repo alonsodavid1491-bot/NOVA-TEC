@@ -41,17 +41,20 @@
     #sidebar { transition: transform 0.3s ease-in-out; }
     #reader video { border-radius: 0.5rem; }
 
-    @media print {
+        @media print {
       body * { visibility: hidden; }
       #app-main-view, aside, header, #sidebar-overlay, #toast-msg, #scanner-modal, #portal-view { display: none !important; }
       #printable-receipt { 
         display: block !important; 
         visibility: visible !important; 
         position: absolute; 
-        left: 0; top: 0; 
-        width: 100% !important; 
+        left: 0; 
+        top: 0; 
+        width: 80mm !important; 
+        padding: 2mm !important;
         background: white !important; 
         color: black !important; 
+        font-family: 'Courier New', Courier, monospace !important;
       }
       #printable-receipt * { visibility: visible !important; }
     }
@@ -1796,71 +1799,80 @@ t += `\n\n🔍 Siga el estado de su orden aquí:\n${urlReal}?id=${o.numero}`;
         window.restaurarRespaldoJSON = function(event) { const file = event.target.files[0]; if(!file) return; window.customConfirm("ADVERTENCIA: Esto sobrescribirá TODOS los datos. ¿Proceder?", () => { const reader = new FileReader(); reader.onload = async (e) => { try { const data = JSON.parse(e.target.result); if(!data.ordenes || !data.config) throw new Error("Formato inválido"); window.guardarDatosLocal('ordenes', data.ordenes); window.guardarDatosLocal('clientes', data.clientes || []); window.guardarDatosLocal('inventario', data.inventario || []); window.guardarDatosLocal('proveedores', data.proveedores || []); window.guardarDatosLocal('firmas', data.firmas || []); window.guardarDatosLocal('fotos', data.fotos || []); if(data.config) { window.guardarDatosLocal('colaboradores', data.config.colaboradores); window.guardarDatosLocal('estados', data.config.estados); window.guardarDatosLocal('sucursales', data.config.sucursales); window.guardarDatosLocal('checklists', data.config.checklists); window.guardarDatosLocal('firmas_tecnicos', data.config.firmas_tecnicos); } window.toast("Restaurado Correctamente. Recargando...", "green"); setTimeout(() => window.location.reload(), 1500); } catch(err) { window.toast("Archivo JSON corrupto o inválido", "red"); } }; reader.readAsText(file); }); };
 
         // IMPRESIÓN Y BOLETAS (NOVA-TEC)
-        window.imprimirBoletaOrden = function(num) {
-            const o = window.todasOrdenes.find(x => String(x.numero) === String(num)); if (!o) return;
-            const em = window.empresa_multi[o.sucursal || window.sucursales[0]] || { nombre: "NOVA-TEC", nit: "000", dir: "---", tel: "---" };
+            window.imprimirBoletaOrden = function(num) {
+            const o = window.todasOrdenes.find(x => String(x.numero) === String(num)); 
+            if (!o) return;
             
-            let h = `<div id="printable-receipt" class="font-sans text-black max-w-3xl mx-auto p-6 bg-white hidden">
-                <div class="flex justify-between items-start border-b-2 border-black pb-4 mb-4">
-                    <div>
-                        <h1 class="text-3xl font-black tracking-tight">${em.nombre.toUpperCase()}</h1>
-                        <p class="text-sm font-semibold mt-1">Identificación: ${em.nit}</p>
-                        <p class="text-sm">${em.dir}</p>
-                        <p class="text-sm font-bold mt-1">Tel/WA: ${em.tel}</p>
-                    </div>
-                    <div class="text-right">
-                        <div class="bg-black text-white px-4 py-2 text-xl font-bold rounded">ORDEN #${o.numero}</div>
-                        <p class="text-sm mt-2 font-bold">Fecha: ${window.formatSafeDate(o.fecha)}</p>
-                    </div>
+            const em = window.empresa_multi[o.sucursal || window.sucursales[0]] || { 
+                nombre: "NOVA-TEC", 
+                nit: "000", 
+                dir: "---", 
+                tel: "---" 
+            };
+
+            const saldo = Math.max(0, (parseInt(o.presupuesto) || 0) - (parseInt(o.abono) || 0));
+
+            let h = `
+            <div id="printable-receipt" style="width: 80mm; font-family: monospace; font-size: 11px; color: black; line-height: 1.2;">
+                <!-- ENCABEZADO DE TICKET -->
+                <div style="text-align: center; border-bottom: 1px dashed black; padding-bottom: 8px; margin-bottom: 8px;">
+                    <h2 style="font-size: 16px; font-weight: bold; margin: 0;">${em.nombre.toUpperCase()}</h2>
+                    <div>ID/Ced: ${em.nit}</div>
+                    <div>${em.dir}</div>
+                    <div>Tel: ${em.tel}</div>
+                    <div style="font-size: 14px; font-weight: bold; margin-top: 6px;">*** TICKET ORDEN #${o.numero} ***</div>
+                    <div>Fecha: ${window.formatSafeDate(o.fecha)}</div>
                 </div>
-                
-                <div class="grid grid-cols-2 gap-6 mb-6">
-                    <div class="border border-black p-3 rounded">
-                        <h3 class="font-bold border-b border-black pb-1 mb-2">DATOS DEL CLIENTE</h3>
-                        <p class="text-sm"><b>Nombre:</b> ${o.nombre}</p>
-                        <p class="text-sm"><b>Teléfono:</b> ${o.telefono || '--'}</p>
+
+                <!-- DATOS CLIENTE Y EQUIPO -->
+                <div style="border-bottom: 1px dashed black; padding-bottom: 6px; margin-bottom: 6px;">
+                    <div><b>Cliente:</b> ${o.nombre}</div>
+                    <div><b>Tel:</b> ${o.telefono || '--'}</div>
+                    <div><b>Equipo:</b> ${o.dispositivo}</div>
+                    <div><b>Seguridad:</b> ${o.tipoBloqueo === 'pin' ? `PIN: ${o.valorBloqueo}` : (o.tipoBloqueo === 'patron' ? 'Patrón' : 'Ninguno')}</div>
+                </div>
+
+                <!-- FALLO Y DETALLES -->
+                <div style="border-bottom: 1px dashed black; padding-bottom: 6px; margin-bottom: 6px;">
+                    <b>FALLO REPORTADO:</b>
+                    <div style="white-space: pre-wrap; margin-top: 2px;">${o.obs || 'Sin observaciones.'}</div>
+                    ${o.checklist && o.checklist.length ? `<div style="margin-top: 4px;"><b>REVISIÓN:</b> ${o.checklist.join(', ')}</div>` : ''}
+                </div>
+
+                <!-- TOTALES Y PAGO -->
+                <div style="border-bottom: 1px dashed black; padding-bottom: 6px; margin-bottom: 6px; font-size: 12px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Estimado:</span>
+                        <b>${o.presupuesto === 'Pendiente' ? 'PENDIENTE' : '₡' + parseInt(o.presupuesto || 0).toLocaleString('en-US')}</b>
                     </div>
-                    <div class="border border-black p-3 rounded">
-                        <h3 class="font-bold border-b border-black pb-1 mb-2">EQUIPO Y CONDICIÓN</h3>
-                        <p class="text-sm"><b>Equipo:</b> ${o.dispositivo} (${o.tipoDispositivo})</p>
-                        <p class="text-sm"><b>Seguridad:</b> ${o.tipoBloqueo==='pin'?`PIN: ${o.valorBloqueo}`:(o.tipoBloqueo==='patron'?'Patrón':'Ninguna')}</p>
+                    ${o.abono > 0 ? `
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Abono Inicial:</span>
+                        <span>₡${parseInt(o.abono).toLocaleString('en-US')}</span>
+                    </div>` : ''}
+                    <div style="display: flex; justify-content: space-between; font-weight: bold; margin-top: 2px;">
+                        <span>SALDO PENDIENTE:</span>
+                        <span>₡${saldo.toLocaleString('en-US')}</span>
                     </div>
                 </div>
 
-                <div class="border border-black p-3 rounded mb-6 min-h-[100px]">
-                    <h3 class="font-bold border-b border-black pb-1 mb-2">MOTIVO DE INGRESO / FALLO</h3>
-                    <p class="text-sm whitespace-pre-wrap">${o.obs || 'Sin observaciones detalladas.'}</p>
-                </div>
-                
-                ${o.checklist && o.checklist.length ? `<div class="mb-6"><h3 class="font-bold text-sm mb-2">INSPECCIÓN FÍSICA INICIAL:</h3><div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">${o.checklist.map(c => `<div>[X] ${c}</div>`).join('')}</div></div>` : ''}
-
-                <div class="border-2 border-black p-3 rounded mb-8 bg-gray-100 flex justify-between items-center">
-                    <div class="font-bold">TOTAL ESTIMADO: <span class="text-xl ml-2">${o.presupuesto==='Pendiente'?'Pendiente de Revisión':`₡${parseInt(o.presupuesto).toLocaleString('en-US')}`}</span></div>
-                    ${o.abono > 0 ? `<div class="font-bold">ABONO: ₡${parseInt(o.abono).toLocaleString('en-US')}</div>` : ''}
+                <!-- POLITICAS Y FIRMAS -->
+                <div style="font-size: 9px; text-align: justify; margin-bottom: 15px;">
+                    * Plazo máximo de retiro: 30 días. Transcurrido el plazo, el taller dispondrá del equipo conforme a la ley. Garantía aplica únicamente sobre el trabajo realizado.
                 </div>
 
-                <!-- CAMBIO AQUÍ: Términos y condiciones optimizados para papel térmico -->
-                <div class="text-xs text-left leading-relaxed border-2 border-black p-4 rounded mb-8 text-black font-medium">
-                    <b class="uppercase block mb-1 text-sm">Términos de servicio y abandono legal:</b> 
-                    El cliente acepta que cuenta con un máximo de 30 días naturales para retirar su equipo una vez notificado. Vencido este plazo, el Taller dispone del equipo para chatarra electrónica o cobro por bodegaje de forma irrevocable. Nova-Tec asume garantía estrictamente sobre la reparación ejecutada y las refacciones instaladas (no fallos ajenos, pre-existentes o daño por líquidos/golpes).
-                </div>
-
-                <div class="flex justify-between px-10 mt-16 text-center">
-                    <div>
-                        <div class="w-48 border-b-2 border-black mb-2 mx-auto"></div>
-                        <p class="font-bold text-sm">Firma Cliente / Acepto Términos</p>
-                    </div>
-                    <div>
-                        <div class="w-48 border-b-2 border-black mb-2 mx-auto"></div>
-                        <p class="font-bold text-sm">Firma Recepción Nova-Tec</p>
-                    </div>
+                <div style="text-align: center; margin-top: 25px;">
+                    <div style="border-top: 1px solid black; width: 80%; margin: 0 auto 4px auto;"></div>
+                    <div>Firma de Conformidad Cliente</div>
                 </div>
             </div>`;
             
-            let oldR = document.getElementById('printable-receipt'); if(oldR) oldR.remove();
+            let oldR = document.getElementById('printable-receipt'); 
+            if (oldR) oldR.remove();
             document.body.insertAdjacentHTML('beforeend', h);
             window.print();
         };
+
 
         window.generarPDFOrden = function(num) {
             const o = window.todasOrdenes.find(x => String(x.numero) === String(num)); if (!o) return;
