@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nova-Tec - ERP de Servicio Técnico</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: { 
+            primary: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' } 
+          }
+        }
+      }
+    }
+  </script>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f3f4f6; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    input, select, textarea { border-color: #d1d5db; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.2s ease-in-out; }
+    input:focus, select:focus, textarea:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 1px #2563eb; }
+    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    #sidebar { transition: transform 0.3s ease-in-out; }
+    #reader video { border-radius: 0.5rem; }
+
+    /* REGLA FUNDAMENTAL: El recibo imprimible siempre está oculto en pantalla normal */
+    #printable-receipt {
+      display: none !important;
+    }
+
+    @media print {
+      body * { visibility: hidden !important; }
+      #app-main-view, aside, header, #sidebar-overlay, #toast-msg, #scanner-modal, #portal-view, #login-overlay, #modal-editar-orden, #modal-clientes { 
+        display: none !important; 
+      }
+      #printable-receipt { 
+        display: block !important; 
+        visibility: visible !important; 
+        position: absolute !important; 
+        left: 0 !important; 
+        top: 0 !important; 
+        width: 80mm !important; 
+        padding: 2mm !important;
+        background: white !important; 
+        color: black !important; 
+        font-family: monospace, sans-serif !important;
+      }
+      #printable-receipt * { visibility: visible !important; }
+    }
+  </style>
+</head>
+<body class="font-sans text-gray-800 h-screen overflow-hidden bg-gray-50 flex">
+
+  <!-- NOTIFICACIONES TOAST -->
+  <div id="toast-msg" class="fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-12 opacity-0 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white">
+    <div id="toast-icon"></div>
+    <p id="toast-text" class="text-sm font-semibold text-slate-700"></p>
+  </div>
+
+  <!-- MODAL DE CONFIRMACIÓN -->
+  <div id="confirm-modal" class="fixed inset-0 z-[11000] hidden items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300">
+    <div class="bg-white border border-slate-200 rounded-lg max-w-sm w-full p-6 shadow-2xl transform scale-95 transition-transform duration-300">
+      <div class="flex items-center gap-3 text-red-600 mb-4">
+        <i class="w-6 h-6" data-lucide="alert-triangle"></i>
+        <h3 class="text-lg font-bold text-slate-900">Confirmación</h3>
+      </div>
+      <p id="confirm-message" class="text-slate-600 text-sm leading-relaxed mb-6"></p>
+      <div class="flex gap-2 justify-end">
+        <button onclick="window.cerrarConfirm(false)" class="px-4 py-2 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 transition font-medium text-sm">Cancelar</button>
+        <button onclick="window.cerrarConfirm(true)" class="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium text-sm transition shadow-sm">Proceder</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE ESCÁNER -->
+  <div id="scanner-modal" class="fixed inset-0 z-[11500] hidden items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm transition-opacity duration-300">
+    <div class="bg-white border border-slate-200 rounded-lg max-w-md w-full p-6 shadow-2xl relative">
+      <button class="absolute top-4 right-4 text-slate-400 hover:text-slate-600" onclick="window.cerrarEscaner()"><i class="w-5 h-5" data-lucide="x"></i></button>
+      <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="scan"></i> Escáner de Código</h3>
+      <div id="reader" class="w-full bg-slate-100 border border-slate-300 rounded-lg overflow-hidden min-h-[300px]"></div>
+      <p class="text-xs text-center text-slate-500 mt-3">Enfoque la cámara al código QR o Código de Barras.</p>
+    </div>
+  </div>
+
+  <!-- PORTAL PÚBLICO DE RASTREO CLIENTE -->
+  <div id="portal-view" class="fixed inset-0 bg-slate-900 z-[15000] hidden flex-col items-center justify-center p-4 overflow-y-auto">
+      <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+          <button onclick="window.cerrarPortal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><i class="w-5 h-5" data-lucide="x"></i></button>
+          <div class="text-center mb-6">
+              <h2 class="text-xl font-black text-slate-900">NOVA-TEC TRACKER</h2>
+              <p class="text-xs text-slate-500">Consulta el estado de tu equipo en tiempo real</p>
+          </div>
+          <div class="flex gap-2 mb-4">
+              <input type="text" id="portal-inp-num" class="flex-1 rounded border border-slate-300 p-2 text-sm uppercase font-bold outline-none" placeholder="Ej: 1001">
+              <button onclick="window.consultarPortalEstado()" class="px-4 bg-primary-600 hover:bg-primary-700 text-white rounded font-bold text-sm shadow-sm">Buscar</button>
+          </div>
+          <div id="portal-resultado" class="space-y-3">
+              <div class="text-center text-slate-400 text-xs py-8">Ingrese su número de orden para consultar.</div>
+          </div>
+      </div>
+  </div>
+
+  <!-- INICIO DE SESIÓN -->
+  <div id="login-overlay" class="fixed inset-0 bg-slate-100 z-[10000] flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg p-8 w-full max-w-sm text-center shadow-2xl">
+      <div class="w-16 h-16 rounded-lg bg-primary-50 text-primary-600 mx-auto mb-4 flex items-center justify-center">
+        <i class="w-8 h-8" data-lucide="monitor-smartphone"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-900 mb-1">Nova-Tec ERP</h2>
+      <p class="text-sm text-slate-500 mb-6">Acceso Corporativo</p>
+      <div class="text-left mb-4">
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Clave de Operador</label>
+        <div class="relative">
+          <span class="absolute left-3 top-2.5 text-slate-400"><i class="w-4 h-4" data-lucide="lock"></i></span>
+          <input type="password" id="login-password-field" class="w-full bg-white border border-slate-300 rounded p-2.5 pl-9 text-center font-mono text-xl tracking-widest focus:border-primary-500 outline-none" placeholder="••••" onkeydown="if(event.key === 'Enter') window.procesarLogin()">
+        </div>
+      </div>
+      <div class="text-left mb-6 text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+        🔑 <b>Roles de Acceso:</b><br>
+        • <b>Admin:</b> Clave <span class="font-mono font-bold">15271527</span><br>
+        • <b>Recepción:</b> Clave <span class="font-mono font-bold">5678</span><br>
+        • <b>Técnico:</b> Clave <span class="font-mono font-bold">9000</span>
+      </div>
+      <button class="w-full py-2.5 rounded bg-primary-600 text-white font-bold hover:bg-primary-700 transition shadow-sm mb-2" onclick="window.procesarLogin()">Iniciar Sesión</button>
+      <button onclick="window.abrirPortal()" class="w-full py-1.5 rounded bg-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-200 transition">📱 Abrir Portal de Clientes (QR)</button>
+    </div>
+  </div>
+
+  <!-- MODAL ÚNICO PARA CREAR/EDITAR ÓRDENES -->
+  <div id="modal-editar-orden" class="fixed inset-0 z-[60] hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0 z-10 rounded-t-xl">
+        <h3 id="modal-titulo" class="font-bold text-lg text-slate-800 flex items-center gap-2">
+          <i class="w-5 h-5 text-primary-600" data-lucide="file-edit"></i> Ficha de Servicio
+        </h3>
+        <button class="text-slate-400 hover:text-slate-700 transition-colors p-1" onclick="window.cerrarModalOrden()">
+          <i class="w-6 h-6" data-lucide="x"></i>
+        </button>
+      </div>
+      
+      <div class="p-6">
+        <form id="form-orden-trabajo" onsubmit="window.procesarFormularioOrden(event)" class="space-y-6">
+          <input type="hidden" id="form-edit-idx">
+          <input type="hidden" id="form-fecha-original">
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">N° de Orden</label>
+              <input type="text" id="form-numero" class="w-full rounded border border-slate-300 py-2 px-3 text-sm font-bold text-slate-800 bg-white" required>
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Sucursal</label>
+              <select id="form-sucursal" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white outline-none cursor-pointer text-slate-700"></select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Recibe</label>
+              <select id="form-recepcionista" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white outline-none cursor-pointer text-slate-700"></select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Técnico Asignado</label>
+              <select id="form-tecnico" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white outline-none cursor-pointer text-slate-700">
+                <option value="">Sin Asignar</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-200 pb-6">
+            <div>
+              <div class="flex justify-between items-end mb-1">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nombre del Cliente</label>
+                <button type="button" onclick="window.abrirModalClientes()" class="text-[10px] text-primary-600 hover:text-primary-800 font-bold flex items-center gap-1 transition-colors">
+                  <i class="w-3.5 h-3.5" data-lucide="search"></i> Buscar / Añadir
+                </button>
+              </div>
+              <input type="text" id="form-nombre" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-primary-500" placeholder="Ej. Juan Pérez" oninput="window.sugerirHistorialCliente(this.value)" required>
+              <div id="historial-cliente-preview" class="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 hidden"></div>
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Teléfono / WhatsApp</label>
+              <input type="text" id="form-telefono" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-primary-500" placeholder="Ej. 8888-8888">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 border-b border-slate-200 pb-6">
+            <div class="lg:col-span-5 space-y-4">
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Categoría</label>
+                <select id="form-tipo-dispositivo" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm outline-none cursor-pointer focus:border-primary-500" onchange="window.renderChecklistDinamico()"></select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Modelo del Equipo</label>
+                <input type="text" id="form-dispositivo" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-primary-500" placeholder="Ej. iPhone 13 Pro / Laptop HP..." required>
+              </div>
+              
+              <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Seguridad / Bloqueo</label>
+                <div class="flex gap-2 mb-3">
+                  <button type="button" id="btn-lock-ninguno" onclick="window.setTipoBloqueo('ninguno')" class="flex-1 py-1.5 border border-primary-500 bg-primary-50 text-primary-700 text-xs font-bold rounded shadow-sm">No</button>
+                  <button type="button" id="btn-lock-pin" onclick="window.setTipoBloqueo('pin')" class="flex-1 py-1.5 border border-slate-300 bg-white text-xs font-medium rounded text-slate-600">PIN</button>
+                  <button type="button" id="btn-lock-patron" onclick="window.setTipoBloqueo('patron')" class="flex-1 py-1.5 border border-slate-300 bg-white text-xs font-medium rounded text-slate-600">Patrón</button>
+                </div>
+                
+                <div id="group-lock-pin" class="hidden">
+                  <input type="text" id="form-lock-pin-val" class="w-full rounded border border-slate-300 py-2 px-3 text-sm outline-none focus:border-primary-500 text-center tracking-widest font-mono" placeholder="Ingresar Clave">
+                </div>
+                
+                <div id="group-lock-patron" class="hidden space-y-2">
+                  <div class="flex justify-between items-center">
+                    <span class="text-[10px] text-slate-500 font-bold">Dibuje el patrón</span>
+                    <button type="button" onclick="window.limpiarPatronCanvas()" class="text-[10px] text-red-600 hover:underline">Reiniciar</button>
+                  </div>
+                  <div class="border border-slate-300 rounded bg-white overflow-hidden relative touch-none">
+                    <canvas id="canvas-patron" class="w-full h-32 cursor-crosshair block bg-slate-50"></canvas>
+                  </div>
+                  <input type="hidden" id="form-lock-patron-val">
+                </div>
+              </div>
+            </div>
+
+            <div class="lg:col-span-7 space-y-4">
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Checklist de Recepción Física</label>
+                <div id="checklist-ingreso-container" class="grid grid-cols-2 gap-y-2 gap-x-4 bg-slate-50 border border-slate-200 rounded-lg p-3 min-h-[100px] text-xs"></div>
+              </div>
+              
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Motivo de Ingreso / Fallo Reportado</label>
+                <textarea id="form-obs" class="w-full rounded border border-slate-300 py-2 px-3 text-sm outline-none focus:border-primary-500 h-24" placeholder="Describa el problema que reporta el cliente..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 border border-slate-200 p-4 rounded-lg">
+             <div class="space-y-3">
+               <div>
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Decisión Taller</label>
+                  <select id="form-decision" class="w-full rounded border border-slate-300 py-2 px-2 text-sm outline-none font-semibold text-slate-700">
+                    <option value="T">Taller (Diagnóstico)</option>
+                    <option value="SI">Aprobado (SI)</option>
+                    <option value="NO">Rechazado (NO)</option>
+                  </select>
+               </div>
+               <div>
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Estado de Avance</label>
+                  <select id="form-estado" class="w-full rounded border border-slate-300 py-2 px-2 text-sm outline-none font-semibold text-slate-700"></select>
+               </div>
+             </div>
+
+             <div class="space-y-3">
+               <div>
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Presupuesto / Total (₡)</label>
+                  <input type="number" id="form-presupuesto" class="w-full rounded border border-slate-300 py-2 px-3 text-sm outline-none font-bold text-slate-800" placeholder="Dejar vacío si es pendiente" oninput="window.calcularSaldoPendiente()">
+               </div>
+               <div>
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Método de Pago</label>
+                  <select id="form-pago" class="w-full rounded border border-slate-300 py-2 px-2 text-sm outline-none font-semibold text-slate-700">
+                    <option value="PD">Pago Pendiente (PD)</option>
+                    <option value="EF">Efectivo (EF)</option>
+                    <option value="TD">Tarjeta / Datáfono (TD)</option>
+                    <option value="TR">Transferencia / Sinpe (TR)</option>
+                  </select>
+               </div>
+             </div>
+
+             <div class="md:col-span-2 bg-white border border-slate-200 rounded p-4 flex flex-col justify-center">
+                <div class="flex justify-between items-center mb-3">
+                  <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Abono Inicial (₡)</label>
+                  <input type="number" id="form-abono" class="w-32 rounded border border-slate-300 py-1.5 px-2 text-sm outline-none font-bold text-slate-800 text-right" placeholder="0" oninput="window.calcularSaldoPendiente()">
+                </div>
+                <div class="flex justify-between items-center border-t border-slate-100 pt-3">
+                  <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Saldo Pendiente</label>
+                  <input type="text" id="form-saldo-pendiente" class="w-32 bg-transparent text-lg outline-none font-black text-amber-600 text-right" readonly value="₡0">
+                </div>
+             </div>
+          </div>
+
+          <div class="flex gap-3 justify-end pt-2">
+            <button type="button" class="px-5 py-2.5 rounded border border-slate-300 text-slate-700 font-semibold hover:bg-slate-50 transition" onclick="window.cerrarModalOrden()">Cancelar</button>
+            <button type="submit" id="btn-guardar-orden" class="px-6 py-2.5 rounded bg-primary-600 text-white font-bold hover:bg-primary-700 transition shadow-sm flex items-center gap-2">
+              <i class="w-4 h-4" data-lucide="save"></i> Guardar Ficha
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  
+  <!-- MODAL ÚNICO DE CLIENTES -->
+  <div id="modal-clientes" class="fixed inset-0 z-[70] hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-md w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+      <div class="px-5 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+        <h3 class="font-bold text-slate-800 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="users"></i> Clientes</h3>
+        <button type="button" class="text-slate-400 hover:text-slate-700 transition" onclick="window.cerrarModalClientes()">
+          <i class="w-5 h-5" data-lucide="x"></i>
+        </button>
+      </div>
+      
+      <div class="p-5 flex-1 overflow-y-auto">
+        <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg mb-5">
+          <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nuevo Cliente</h4>
+          <div class="space-y-2">
+            <input type="text" id="new-cli-nombre" class="w-full rounded border border-slate-300 py-2 px-3 text-sm focus:border-primary-500 outline-none" placeholder="Nombre completo">
+            <input type="text" id="new-cli-telefono" class="w-full rounded border border-slate-300 py-2 px-3 text-sm focus:border-primary-500 outline-none" placeholder="Teléfono / WhatsApp">
+            <button type="button" id="btn-guardar-cliente" onclick="window.guardarNuevoCliente()" class="w-full py-2 rounded bg-primary-600 text-white font-bold text-sm hover:bg-primary-700 transition shadow-sm">
+              Guardar Cliente
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Buscar Existente</h4>
+          <div class="relative mb-3">
+            <span class="absolute left-3 top-2.5 text-slate-400"><i class="w-4 h-4" data-lucide="search"></i></span>
+            <input type="text" id="search-clientes" oninput="window.debouncedRenderListaClientes()" class="w-full rounded border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-primary-500 outline-none" placeholder="Buscar por nombre o teléfono...">
+          </div>
+          <div id="lista-clientes-container" class="space-y-1.5 max-h-48 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- NAVEGACIÓN LATERAL -->
+  <aside id="sidebar" class="w-64 bg-slate-900 text-slate-300 flex-col hidden md:flex absolute md:relative z-50 h-full transform -translate-x-full md:translate-x-0 shrink-0 shadow-xl">
+    <div class="h-14 flex items-center px-4 border-b border-slate-800 justify-between bg-slate-950">
+      <div class="flex items-center gap-2 text-white font-bold text-lg">
+        <i class="w-5 h-5 text-primary-500" data-lucide="monitor-smartphone"></i> NOVA-TEC
+      </div>
+      <button class="md:hidden text-slate-400 hover:text-white" onclick="window.toggleSidebar()"><i class="w-5 h-5" data-lucide="x"></i></button>
+    </div>
+    
+    <div class="p-4 border-b border-slate-800">
+      <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Sucursal</label>
+      <select id="selector-sucursal-global" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm font-semibold text-white focus:border-primary-500 outline-none cursor-pointer" onchange="window.cambiarSucursalGlobal(this.value)"></select>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-2 mt-1">Gestión Principal</div>
+      <button class="tab-btn nav-link-all w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium bg-primary-600 text-white transition active" onclick="window.changeTab('tab-orders')"><i class="w-4 h-4" data-lucide="file-text"></i> Recepción y Órdenes</button>
+      <button class="tab-btn nav-link-admin nav-link-recepcion w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-pos')"><i class="w-4 h-4" data-lucide="shopping-cart"></i> Punto de Venta</button>
+      <button class="tab-btn nav-link-all w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-repair-detail')"><i class="w-4 h-4" data-lucide="wrench"></i> Taller Técnico</button>
+      <button class="tab-btn nav-link-admin nav-link-recepcion w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-inventory')"><i class="w-4 h-4" data-lucide="package"></i> Inventario</button>
+      <button class="tab-btn nav-link-admin w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-suppliers')"><i class="w-4 h-4" data-lucide="truck"></i> Proveedores</button>
+      <button class="tab-btn nav-link-admin w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-finance')"><i class="w-4 h-4" data-lucide="dollar-sign"></i> Finanzas y Caja</button>
+
+      <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-2 mt-6">Complementos</div>
+      <button class="tab-btn nav-link-all w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-signatures')"><i class="w-4 h-4" data-lucide="pen-tool"></i> Firmas Digitales</button>
+      <button class="tab-btn nav-link-all w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-multimedia')"><i class="w-4 h-4" data-lucide="camera"></i> Evidencias y WA</button>
+      
+      <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-2 mt-6">Sistema</div>
+      <button class="tab-btn nav-link-admin w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-abandonados')"><i class="w-4 h-4" data-lucide="alert-octagon"></i> Abandonados</button>
+      <button class="tab-btn nav-link-admin w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-slate-300 hover:bg-slate-800 transition" onclick="window.changeTab('tab-config')"><i class="w-4 h-4" data-lucide="settings"></i> Ajustes</button>
+    </nav>
+    
+    <div class="p-4 border-t border-slate-800 bg-slate-950 flex justify-between items-center">
+      <div class="flex items-center gap-2 text-xs text-slate-400 font-medium">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-500" id="drive-ping"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-slate-500" id="drive-dot"></span>
+        </span>
+        <span id="drive-text">Iniciando Sync...</span>
+      </div>
+      <button onclick="window.location.reload()" class="text-[10px] text-slate-400 hover:text-white font-mono underline">Salir</button>
+    </div>
+  </aside>
+
+  <!-- OVERLAY PARA MÓVILES -->
+  <div id="sidebar-overlay" class="fixed inset-0 bg-slate-900/60 z-40 hidden md:hidden backdrop-blur-sm" onclick="window.toggleSidebar()"></div>
+
+  <!-- AREA PRINCIPAL (DERECHA) -->
+  <div id="app-main-view" class="flex-1 flex flex-col h-full hidden relative overflow-hidden bg-slate-100">
+    <header class="bg-white border-b border-slate-200 h-14 flex items-center justify-between px-4 lg:px-6 z-30 shrink-0 shadow-sm">
+      <div class="flex items-center gap-3">
+        <button class="md:hidden text-slate-500 hover:text-slate-900 p-1 rounded hover:bg-slate-100 transition" onclick="window.toggleSidebar()"><i class="w-6 h-6" data-lucide="menu"></i></button>
+        <h2 id="top-breadcrumb" class="text-sm font-bold text-slate-800 uppercase tracking-wide">Recepción y Órdenes</h2>
+      </div>
+      <div class="flex items-center gap-4">
+        <span id="badge-rol-activo" class="text-xs font-semibold text-primary-700 bg-primary-50 px-2.5 py-1 rounded border border-primary-200">
+          Rol: Administrador
+        </span>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-4 lg:p-6">
+      <!-- 1. ÓRDENES -->
+      <section id="tab-orders" class="view-panel block space-y-4">
+        <div class="bg-white border border-slate-200 p-4 rounded-lg shadow-sm flex flex-col lg:flex-row gap-3 items-end">
+          <div class="flex-1 w-full relative flex gap-2">
+            <div class="flex-1 relative">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Buscar en <span id="search-sucursal-lbl" class="text-primary-600">esta sucursal</span></label>
+                <span class="absolute left-3 top-[1.6rem] text-slate-400"><i class="w-4 h-4" data-lucide="search"></i></span>
+                <input type="text" id="inp-search" class="w-full rounded border border-slate-300 py-1.5 pl-9 pr-3 text-sm focus:border-primary-500 outline-none" oninput="window.debouncedRenderHistorial()" placeholder="Orden, Cliente o Modelo...">
+            </div>
+            <button onclick="window.abrirEscaner('inp-search', window.renderHistorial)" class="mt-5 px-3 rounded bg-slate-100 border border-slate-300 text-slate-600 hover:bg-slate-200 transition"><i class="w-5 h-5" data-lucide="camera"></i></button>
+          </div>
+          
+          <div class="w-full lg:w-36">
+            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado</label>
+            <select id="filter-estado" class="w-full rounded border border-slate-300 py-1.5 px-2 text-sm focus:border-primary-500 outline-none cursor-pointer" onchange="window.renderHistorial()">
+              <option value="TODOS">Todos</option>
+            </select>
+          </div>
+          <div class="w-full lg:w-36">
+            <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Decisión</label>
+            <select id="filter-decision-taller" class="w-full rounded border border-slate-300 py-1.5 px-2 text-sm focus:border-primary-500 outline-none cursor-pointer" onchange="window.renderHistorial()">
+              <option value="TODOS">Todas</option>
+              <option value="SI">Aprobado</option>
+              <option value="NO">Rechazado</option>
+              <option value="T">Taller (T)</option>
+            </select>
+          </div>
+          <div class="flex gap-2 w-full lg:w-auto">
+            <button class="flex-1 lg:flex-none py-1.5 px-4 rounded bg-white border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition flex items-center justify-center gap-2" onclick="window.exportarExcel()"><i class="w-4 h-4" data-lucide="file-spreadsheet"></i> Excel</button>
+            <button type="button" class="btn-privilegio-admin btn-privilegio-recepcion flex-1 lg:flex-none py-1.5 px-4 rounded bg-emerald-600 border border-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-sm transition" onclick="window.crearNuevaOrden()"><i class="w-4 h-4" data-lucide="plus"></i> Nueva Orden</button>
+          </div>
+        </div>
+
+        <div id="box-alertas-retraso" class="bg-red-50 border border-red-200 rounded-lg p-3 shadow-sm hidden">
+          <h4 class="text-sm font-bold text-red-800 flex items-center gap-2 mb-2"><i class="w-4 h-4" data-lucide="alert-circle"></i> ATENCIÓN: EQUIPOS CON RETRASO</h4>
+          <div id="alertas-retraso-container" class="space-y-1"></div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col">
+          <div class="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-lg">
+            <h3 class="font-bold text-sm text-slate-700 uppercase tracking-wide">Listado de Órdenes</h3>
+            <span class="text-xs bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded" id="row-count">0 reg.</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm whitespace-nowrap">
+              <thead class="bg-white border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
+                <tr>
+                  <th class="px-4 py-3">Ord</th>
+                  <th class="px-4 py-3">Cliente</th>
+                  <th class="px-4 py-3">Equipo</th>
+                  <th class="px-4 py-3">Técnico</th>
+                  <th class="px-4 py-3">Monto / Saldo</th>
+                  <th class="px-4 py-3">Decisión</th>
+                  <th class="px-4 py-3">Estado</th>
+                  <th class="px-4 py-3">Ingreso</th>
+                  <th class="px-4 py-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-ordenes-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESTO DE SECCIONES (PUNTO DE VENTA, TALLER, INVENTARIO, PROVEEDORES, ETC.) -->
+    </main>
+  </div>
+
+  <script>
+    // BLOQUE MAESTRO DE LÓGICA (UNIFICADO)
+    try {
+        window.$ = function(id) { return document.getElementById(id); };
+        
+        window.toast = function(txt, type="green") {
+            const m = window.$('toast-msg'), t = window.$('toast-text'), ic = window.$('toast-icon'); if(!m)return;
+            t.textContent = txt;
+            if (type === "green") ic.innerHTML = '<i class="w-5 h-5 text-emerald-600" data-lucide="check-circle"></i>';
+            else if (type === "amber") ic.innerHTML = '<i class="w-5 h-5 text-amber-500" data-lucide="info"></i>';
+            else ic.innerHTML = '<i class="w-5 h-5 text-red-600" data-lucide="alert-circle"></i>';
+            m.className = `fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-0 opacity-100 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white`;
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+            setTimeout(() => { m.className = `fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-12 opacity-0 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white`; }, 3000);
+        };
+
+        window.confirmCb = null;
+        window.customConfirm = function(msg, cb) { window.$('confirm-message').textContent = msg; window.$('confirm-modal').classList.remove('hidden'); window.$('confirm-modal').classList.add('flex'); window.confirmCb = cb; };
+        window.cerrarConfirm = function(res) { window.$('confirm-modal').classList.add('hidden'); window.$('confirm-modal').classList.remove('flex'); if(res && typeof window.confirmCb === 'function') window.confirmCb(); window.confirmCb = null; };
+
+        window.cfg = function(k, v) { 
+          try {
+            const key = 'novatec_erp_v15_' + k;
+            if(v !== undefined) { localStorage.setItem(key, JSON.stringify(v)); return v; } 
+            const d = localStorage.getItem(key); return d ? JSON.parse(d) : null; 
+          } catch(e) { return v !== undefined ? v : null; }
+        };
+        
+        window.quitaAcentos = function(str) { return String(str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); };
+        window.safeData = function(obj) { return JSON.parse(JSON.stringify(obj)); };
+        window.formatSafeDate = function(dString) { if(!dString) return '--'; const dx = new Date(dString); return isNaN(dx.getTime()) ? '--' : dx.toLocaleDateString(); };
+        window.fixPDFText = function(str) { return String(str || '').replace(/₡/g, 'CRC '); };
+
+        // VARIABLES GLOBALES DE TRABAJO
+        window.todasOrdenes = [];
+        window.todosClientes = [];
+        window.inventarioGlobal = [];
+        window.proveedores = [];
+        window.firmasClientes = [];
+        window.albumFotos = [];
+        window.colaboradores = [];
+        window.estadosOrden = [];
+        window.CHECKLIST_TEMPLATES = {};
+        window.sucursales = [];
+        window.sucursalActiva = "";
+        window.firmasTecnicos = {};
+        window.empresa_multi = {};
+        
+        window.rolUsuarioActivo = "Admin";
+        window.isSavingOrder = false;
+
+        // CARGA Y PERSISTENCIA DE DATOS
+        window.cargarDatos = function() {
+            window.todasOrdenes = window.cfg('ordenes') || [];
+            window.todosClientes = window.cfg('clientes') || [];
+            window.inventarioGlobal = window.cfg('inventario') || [];
+            window.proveedores = window.cfg('proveedores') || [];
+            window.firmasClientes = window.cfg('firmas') || [];
+            window.albumFotos = window.cfg('fotos') || [];
+            window.colaboradores = window.cfg('colaboradores') || ['Valeria', 'Noelia', 'Alonso', 'Oliver', 'Josue'];
+            window.estadosOrden = window.cfg('estados') || ['Pendiente', 'Entregado', 'Sin solución', 'Garantía'];
+            window.sucursales = window.cfg('sucursales') || ['Nova-Tec Puriscal'];
+            window.CHECKLIST_TEMPLATES = window.cfg('checklists') || {
+              "Teléfono": ["Lente rayado","Equipo mojado","No enciende","Pantalla rota","Marco quebrado","Marco doblado","Tapa trasera dañada","Carga normal","Bandeja SIM","Cargador","Estuche"],
+              "Tablet": ["Pantalla rota","Equipo mojado","No enciende","Funda/Estuche","Sin cargador","Rayones carcasa","Batería dañada"],
+              "Computadora": ["Cargador","No enciende","Estuche","Teclas dañadas","Mouse funciona","Emite sonido","Pantalla rayada","No da imagen","Puertos USB dañados","Batería dañada","Equipo mojado"]
+            };
+            window.firmasTecnicos = window.cfg('firmas_tecnicos') || {};
+            window.empresa_multi = window.cfg('empresa_multi') || {};
+            window.sucursalActiva = window.cfg('sucursal_activa') || window.sucursales[0];
+            if (!window.sucursales.includes(window.sucursalActiva)) window.sucursalActiva = window.sucursales[0];
+        };
+
+        window.guardarDatosLocal = function(key, data) { try { localStorage.setItem('novatec_erp_v15_' + key, JSON.stringify(data)); } catch (e) { } };
+
+        // SISTEMA DE ACCESO Y AUTENTICACIÓN RESTAURADO
+        window.procesarLogin = function() {
+            const passField = window.$('login-password-field'); if(!passField) return;
+            const pass = passField.value.trim();
+            
+            if (pass === "15271527") { window.rolUsuarioActivo = "Admin"; } 
+            else if (pass === "5678") { window.rolUsuarioActivo = "Recepcion"; } 
+            else if (pass === "9000") { window.rolUsuarioActivo = "Tecnico"; } 
+            else { window.toast("Acceso denegado: Clave incorrecta", "red"); passField.value = ""; return; }
+
+            window.$('login-overlay').style.display = 'none';
+            window.$('app-main-view').classList.remove('hidden');
+            const badge = window.$('badge-rol-activo'); if(badge) badge.textContent = `Rol: ${window.rolUsuarioActivo}`;
+            
+            document.querySelectorAll('.tab-btn').forEach(b => b.style.display = 'none');
+            if(window.rolUsuarioActivo === "Admin") {
+                document.querySelectorAll('.tab-btn').forEach(b => b.style.display = 'flex');
+            } else if(window.rolUsuarioActivo === "Recepcion") {
+                document.querySelectorAll('.nav-link-all, .nav-link-recepcion').forEach(b => b.style.display = 'flex');
+            } else if(window.rolUsuarioActivo === "Tecnico") {
+                document.querySelectorAll('.tab-btn').forEach(b => {
+                    const onclick = b.getAttribute('onclick') || '';
+                    if(onclick.includes('tab-orders') || onclick.includes('tab-repair-detail') || onclick.includes('tab-signatures') || onclick.includes('tab-multimedia')) {
+                        b.style.display = 'flex';
+                    }
+                });
+            }
+
+            window.toast("Bienvenido, Rol: " + window.rolUsuarioActivo, "green");
+            window.renderHistorial();
+            window.changeTab(window.rolUsuarioActivo === 'Tecnico' ? 'tab-repair-detail' : 'tab-orders');
+        };
+
+        window.abrirPortal = function() { window.$('portal-view').classList.remove('hidden'); window.$('portal-view').classList.add('flex'); };
+        window.cerrarPortal = function() { window.$('portal-view').classList.add('hidden'); window.$('portal-view').classList.remove('flex'); };
+        window.consultarPortalEstado = function() {
+            const q = window.$('portal-inp-num').value.trim(); const res = window.$('portal-resultado'); if(!q || !res) return;
+            const ord = window.todasOrdenes.find(x => String(x.numero) === String(q));
+            if(!ord) { res.innerHTML = `<div class="bg-red-50 text-red-700 p-3 rounded text-xs text-center font-bold">Orden N° ${q} no encontrada.</div>`; return; }
+            res.innerHTML = `<div class="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2 text-xs"><div class="flex justify-between font-bold text-slate-800"><span>Orden #${ord.numero}</span><span class="text-primary-600">${ord.estado}</span></div><div><b>Cliente:</b> ${ord.nombre}</div><div><b>Equipo:</b> ${ord.dispositivo}</div><div><b>Ingreso:</b> ${window.formatSafeDate(ord.fecha)}</div><div class="pt-2 border-t border-slate-200 flex justify-between font-bold text-slate-700"><span>Saldo Pendiente:</span><span class="text-amber-600">₡${Math.max(0, (parseInt(ord.presupuesto)||0) - (parseInt(ord.abono)||0)).toLocaleString('en-US')}</span></div></div>`;
+        };
+
+        window.changeTab = function(id) { 
+          document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden')); 
+          document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('text-primary-700', 'bg-primary-50', 'active'); b.classList.add('text-slate-600'); }); 
+          if(window.$(id)) window.$(id).classList.remove('hidden'); 
+          const tb = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(id)); 
+          if (tb) { tb.classList.add('text-primary-700', 'bg-primary-50', 'active'); tb.classList.remove('text-slate-600'); window.$('top-breadcrumb').textContent = tb.textContent.trim(); } 
+          if(window.innerWidth < 768) { window.$('sidebar').classList.add('-translate-x-full'); window.$('sidebar-overlay').classList.add('hidden'); } 
+        };
+
+        window.toggleSidebar = function() { window.$('sidebar').classList.toggle('-translate-x-full'); window.$('sidebar-overlay').classList.toggle('hidden'); };
+
+        window.renderHistorial = function() { 
+          const sv=window.quitaAcentos(window.$('inp-search')?.value), fe=window.$('filter-estado')?.value||'TODOS', fd=window.$('filter-decision-taller')?.value||'TODOS', b=window.$('tabla-ordenes-body'); if(!b)return; 
+          const res=window.todasOrdenes.filter(o=>{ if((o.sucursal||window.sucursales[0])!==window.sucursalActiva)return false; return (window.quitaAcentos(o.nombre).includes(sv)||window.quitaAcentos(String(o.numero)).includes(sv)||window.quitaAcentos(o.dispositivo).includes(sv)) && (fe==='TODOS'||o.estado===fe) && (fd==='TODOS'||o.decision===fd); }); 
+          if(window.$('row-count')) window.$('row-count').textContent=`${res.length} reg.`; 
+          if(!res.length){b.innerHTML=`<tr><td colspan="9" class="px-4 py-6 text-center text-xs text-slate-500 font-medium">Sin registros en esta sucursal</td></tr>`;return;} 
+          b.innerHTML=res.map(o=>{ 
+            const tot = o.presupuesto==="Pendiente"?"Pend.":'₡'+parseInt(o.presupuesto||0).toLocaleString('en-US'); const abn = parseInt(o.abono||0); const sld = o.presupuesto==="Pendiente"?"Pend.":'₡'+Math.max(0, parseInt(o.presupuesto||0) - abn).toLocaleString('en-US'); 
+            return `<tr class="hover:bg-slate-50 border-b border-slate-100 transition-colors"><td class="px-4 py-3 font-bold text-primary-600">${o.numero}</td><td class="px-4 py-3 font-medium text-slate-800">${o.nombre}</td><td class="px-4 py-3 text-xs text-slate-600">${o.dispositivo}</td><td class="px-4 py-3 text-[10px] text-slate-500 uppercase font-semibold">${o.tecnico||o.recepcionista||'--'}</td><td class="px-4 py-3 text-xs"><div class="font-bold text-slate-800">${tot}</div><div class="text-[10px] text-amber-600 font-semibold">Saldo: ${sld}</div></td><td class="px-4 py-3"><span class="text-[10px] font-bold px-2 py-1 rounded ${o.decision==='SI'?'bg-emerald-50 text-emerald-700':(o.decision==='NO'?'bg-red-50 text-red-700':'bg-slate-100 text-slate-600')}">${o.decision}</span></td><td class="px-4 py-3"><span class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700">${o.estado}</span></td><td class="px-4 py-3 text-[10px] text-slate-500">${window.formatSafeDate(o.fecha)}</td><td class="px-4 py-3 text-right"><div class="inline-flex gap-1.5"><button class="px-2 py-1.5 rounded border border-slate-200 hover:bg-slate-100 text-slate-700 text-[10px] font-bold transition" onclick="window.imprimirBoletaOrden('${o.numero}')">🖨️ IMP</button></div></td></tr>`; 
+          }).join(''); 
+          if(typeof lucide!=='undefined')lucide.createIcons(); 
+        };
+
+        // IMPRESIÓN DE BOLETAS TÉRMICAS - CLARA, FUENTE GRANDE Y CON AUTODESTRUCCIÓN TRAS IMPRIMIR
+        window.imprimirBoletaOrden = function(num) {
+            const o = window.todasOrdenes.find(x => String(x.numero) === String(num)); 
+            if (!o) return;
+            
+            const em = window.empresa_multi[o.sucursal || window.sucursales[0]] || { 
+                nombre: "NOVA-TEC", 
+                nit: "3101894831", 
+                dir: "frente al parqueo del super mora centro", 
+                tel: "+5066867451" 
+            };
+
+            const saldo = Math.max(0, (parseInt(o.presupuesto) || 0) - (parseInt(o.abono) || 0));
+
+            let h = `
+            <div id="printable-receipt" class="hidden" style="width: 80mm; font-family: monospace, sans-serif; font-size: 13px; color: black; line-height: 1.35; padding: 2px;">
+                <!-- ENCABEZADO TICKET DE TALLER -->
+                <div style="text-align: center; border-bottom: 2px dashed black; padding-bottom: 8px; margin-bottom: 10px;">
+                    <h2 style="font-size: 18px; font-weight: bold; margin: 0 0 4px 0; text-transform: uppercase;">${em.nombre.toUpperCase()}</h2>
+                    <div style="font-size: 12px;">ID/Ced: ${em.nit}</div>
+                    <div style="font-size: 12px;">${em.dir}</div>
+                    <div style="font-size: 12px;">Tel: ${em.tel}</div>
+                    <div style="font-size: 16px; font-weight: bold; margin-top: 8px; border: 1px solid black; padding: 2px 0;">*** ORDEN #${o.numero} ***</div>
+                    <div style="font-size: 12px; margin-top: 4px;">Fecha: ${window.formatSafeDate(o.fecha)}</div>
+                </div>
+
+                <!-- INFORMACIÓN CLIENTE Y EQUIPO -->
+                <div style="border-bottom: 1px dashed black; padding-bottom: 8px; margin-bottom: 8px; font-size: 13px;">
+                    <div><b>Cliente:</b> ${o.nombre}</div>
+                    <div><b>Tel:</b> ${o.telefono || '--'}</div>
+                    <div><b>Equipo:</b> ${o.dispositivo}</div>
+                    <div><b>Seguridad:</b> ${o.tipoBloqueo === 'pin' ? `PIN: ${o.valorBloqueo}` : (o.tipoBloqueo === 'patron' ? 'Patrón' : 'Ninguno')}</div>
+                </div>
+
+                <!-- DETALLE DE FALLO -->
+                <div style="border-bottom: 1px dashed black; padding-bottom: 8px; margin-bottom: 8px; font-size: 13px;">
+                    <b>FALLO REPORTADO:</b>
+                    <div style="white-space: pre-wrap; margin-top: 2px; font-size: 12px;">${o.obs || 'Sin observaciones.'}</div>
+                    ${o.checklist && o.checklist.length ? `<div style="margin-top: 6px; font-size: 12px;"><b>REVISIÓN:</b> ${o.checklist.join(', ')}</div>` : ''}
+                </div>
+
+                <!-- MONTOS Y SALDOS -->
+                <div style="border-bottom: 2px dashed black; padding-bottom: 8px; margin-bottom: 10px; font-size: 14px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Est:</span>
+                        <b>${o.presupuesto === 'Pendiente' ? 'PENDIENTE' : '₡' + parseInt(o.presupuesto || 0).toLocaleString('en-US')}</b>
+                    </div>
+                    ${o.abono > 0 ? `
+                    <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                        <span>Abono:</span>
+                        <span>₡${parseInt(o.abono).toLocaleString('en-US')}</span>
+                    </div>` : ''}
+                    <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 15px; margin-top: 4px;">
+                        <span>SALDO:</span>
+                        <span>₡${saldo.toLocaleString('en-US')}</span>
+                    </div>
+                </div>
+
+                <!-- TÉRMINOS LEGALES -->
+                <div style="font-size: 10px; text-align: justify; margin-bottom: 20px; line-height: 1.2;">
+                    * Plazo máximo de retiro: 30 días. Transcurrido el plazo, el taller dispondrá del equipo conforme a la ley. Garantía aplica únicamente sobre el trabajo realizado.
+                </div>
+
+                <div style="text-align: center; margin-top: 35px; padding-bottom: 10px;">
+                    <div style="border-top: 1px solid black; width: 85%; margin: 0 auto 4px auto;"></div>
+                    <div style="font-size: 12px; font-weight: bold;">Firma de Conformidad Cliente</div>
+                </div>
+            </div>`;
+            
+            let oldR = document.getElementById('printable-receipt'); 
+            if (oldR) oldR.remove();
+            document.body.insertAdjacentHTML('beforeend', h);
+            
+            window.print();
+
+            // Garantiza que la boleta desaparezca del navegador tras imprimir
+            setTimeout(() => {
+                let elem = document.getElementById('printable-receipt');
+                if (elem) elem.remove();
+            }, 300);
+        };
+
+        // INICIALIZACIÓN
+        document.addEventListener("DOMContentLoaded", () => { 
+            try {
+              window.cargarDatos(); 
+              if(typeof lucide !== 'undefined') lucide.createIcons(); 
+            } catch(e) { console.error("Error inicializando datos", e); }
+        });
+
+    } catch (globalErr) {
+        console.error("Fallo prevenido:", globalErr);
+    }
+  </script>
+
+  <!-- FIREBASE Y LÓGICA DE SINCRONIZACIÓN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+
+    const firebaseConfig = { apiKey: "AIzaSyDFkA3Yk0G0e5G60AOWMAtGmeXnSthWInk", authDomain: "tallernovatec.firebaseapp.com", projectId: "tallernovatec", storageBucket: "tallernovatec.firebasestorage.app", messagingSenderId: "62819293051", appId: "1:62819293051:web:6680d2999a592b9d97cfde" };
+
+    window.db = null; window.auth = null; window.appId = 'novatec-sync'; window.setDoc = setDoc; window.doc = doc; window.deleteDoc = deleteDoc;
+
+    const initFirebase = async () => {
+      try {
+        const app = initializeApp(firebaseConfig); window.auth = getAuth(app); window.db = getFirestore(app);
+        try { await enableIndexedDbPersistence(window.db); } catch (err) {}
+        await signInAnonymously(window.auth);
+        
+        onAuthStateChanged(window.auth, (u) => { 
+          if(u){ 
+             const dot = document.getElementById('drive-dot'); const ping = document.getElementById('drive-ping'); const txt = document.getElementById('drive-text'); 
+             if(dot) dot.className = "relative inline-flex rounded-full h-2 w-2 bg-emerald-500"; 
+             if(ping) ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-500"; 
+             if(txt) txt.textContent = "Sincronizado"; 
+          }
+        });
+      } catch(e) { }
+    };
+
+    initFirebase();
+  </script>
+</body>
+</html>
