@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nova-Tec - ERP de Servicio Técnico</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] }, colors: { primary: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' } } } }
+    }
+  </script>
+
+  <script src="https://unpkg.com/lucide@latest" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js" defer></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript" defer></script>
+
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f3f4f6; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    input, select, textarea { border-color: #d1d5db; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.2s ease-in-out; }
+    input:focus, select:focus, textarea:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 1px #2563eb; }
+    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    #sidebar { transition: transform 0.3s ease-in-out; }
+    #reader video { border-radius: 0.5rem; }
+    #printable-receipt { display: none !important; }
+
+    @media print {
+      body * { visibility: hidden !important; }
+      #app-main-view, aside, header, #sidebar-overlay, #toast-msg, #scanner-modal, #portal-view, #login-overlay, #modal-editar-orden, #modal-clientes, #modal-producto { display: none !important; }
+      #printable-receipt { display: block !important; visibility: visible !important; position: absolute !important; left: 0 !important; top: 0 !important; width: 80mm !important; padding: 2mm !important; background: white !important; color: black !important; font-family: monospace, sans-serif !important; }
+      #printable-receipt * { visibility: visible !important; }
+    }
+  </style>
+</head>
+<body class="font-sans text-gray-800 h-screen overflow-hidden bg-gray-50 flex">
+
+  <!-- NOTIFICACIONES TOAST -->
+  <div id="toast-msg" class="fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-12 opacity-0 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white">
+    <div id="toast-icon"></div>
+    <p id="toast-text" class="text-sm font-semibold text-slate-700"></p>
+  </div>
+
+  <!-- MODAL DE ESCÁNER -->
+  <div id="scanner-modal" class="fixed inset-0 z-[11500] hidden items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm transition-opacity duration-300">
+    <div class="bg-white border border-slate-200 rounded-lg max-w-md w-full p-6 shadow-2xl relative">
+      <button class="absolute top-4 right-4 text-slate-400 hover:text-slate-600" onclick="window.cerrarEscaner()"><i class="w-5 h-5" data-lucide="x"></i></button>
+      <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="scan"></i> Escáner de Código</h3>
+      <div id="reader" class="w-full bg-slate-100 border border-slate-300 rounded-lg overflow-hidden min-h-[300px]"></div>
+      <p class="text-xs text-center text-slate-500 mt-3">Enfoque la cámara al código QR o Código de Barras.</p>
+    </div>
+  </div>
+
+  <!-- PORTAL PÚBLICO DE RASTREO CLIENTE -->
+  <div id="portal-view" class="fixed inset-0 bg-slate-900 z-[15000] hidden flex-col items-center justify-center p-4 overflow-y-auto">
+      <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+          <button onclick="window.cerrarPortal()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><i class="w-5 h-5" data-lucide="x"></i></button>
+          <div class="text-center mb-6"><h2 class="text-xl font-black text-slate-900">NOVA-TEC TRACKER</h2><p class="text-xs text-slate-500">Consulta el estado de tu equipo en tiempo real</p></div>
+          <div class="flex gap-2 mb-4">
+              <input type="text" id="portal-inp-num" class="flex-1 rounded border border-slate-300 p-2 text-sm uppercase font-bold outline-none" placeholder="Ej: 1001">
+              <button onclick="window.consultarPortalEstado()" class="px-4 bg-primary-600 hover:bg-primary-700 text-white rounded font-bold text-sm shadow-sm">Buscar</button>
+          </div>
+          <div id="portal-resultado" class="space-y-3"><div class="text-center text-slate-400 text-xs py-8">Ingrese su número de orden para consultar.</div></div>
+      </div>
+  </div>
+
+  <!-- INICIO DE SESIÓN -->
+  <div id="login-overlay" class="fixed inset-0 bg-slate-100 z-[10000] flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg p-8 w-full max-w-sm text-center shadow-2xl">
+      <div class="w-16 h-16 rounded-lg bg-primary-50 text-primary-600 mx-auto mb-4 flex items-center justify-center"><i class="w-8 h-8" data-lucide="monitor-smartphone"></i></div>
+      <h2 class="text-2xl font-bold text-slate-900 mb-1">Nova-Tec ERP</h2>
+      <p class="text-sm text-slate-500 mb-6">Acceso Corporativo</p>
+      <div class="text-left mb-4">
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Clave de Operador</label>
+        <div class="relative">
+          <span class="absolute left-3 top-2.5 text-slate-400"><i class="w-4 h-4" data-lucide="lock"></i></span>
+          <input type="password" id="login-password-field" class="w-full bg-white border border-slate-300 rounded p-2.5 pl-9 text-center font-mono text-xl tracking-widest focus:border-primary-500 outline-none" placeholder="••••" onkeydown="if(event.key === 'Enter') window.procesarLogin()">
+        </div>
+      </div>
+      <div class="text-left mb-6 text-[10px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
+        🔑 <b>Roles de Acceso:</b><br>• <b>Admin:</b> Clave <span class="font-mono font-bold">15271527</span><br>• <b>Recepción:</b> Clave <span class="font-mono font-bold">5678</span><br>• <b>Técnico:</b> Clave <span class="font-mono font-bold">9000</span>
+      </div>
+      <button class="w-full py-2.5 rounded bg-primary-600 text-white font-bold hover:bg-primary-700 transition shadow-sm mb-2" onclick="window.procesarLogin()">Iniciar Sesión</button>
+      <button onclick="window.abrirPortal()" class="w-full py-1.5 rounded bg-slate-100 text-slate-700 font-bold text-xs hover:bg-slate-200 transition">📱 Abrir Portal de Clientes (QR)</button>
+    </div>
+  </div>
+
+  <!-- MODAL DE ÓRDENES -->
+  <div id="modal-editar-orden" class="fixed inset-0 z-[60] hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0 z-10 rounded-t-xl">
+        <h3 id="modal-titulo" class="font-bold text-lg text-slate-800 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="file-edit"></i> Ficha de Servicio</h3>
+        <button class="text-slate-400 hover:text-slate-700 transition-colors p-1" onclick="window.cerrarModalOrden()"><i class="w-6 h-6" data-lucide="x"></i></button>
+      </div>
+      <div class="p-6">
+        <form id="form-orden-trabajo" onsubmit="window.procesarFormularioOrden(event)" class="space-y-6">
+          <input type="hidden" id="form-edit-idx"><input type="hidden" id="form-fecha-original">
+          
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">N° Orden</label><input type="text" id="form-numero" class="w-full rounded border border-slate-300 py-2 px-3 text-sm font-bold bg-white" required></div>
+            <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Sucursal</label><select id="form-sucursal" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white"></select></div>
+            <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Recibe</label><select id="form-recepcionista" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white"></select></div>
+            <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Técnico</label><select id="form-tecnico" class="w-full rounded border border-slate-300 py-2 px-3 text-sm bg-white"><option value="">Sin Asignar</option></select></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-200 pb-6">
+            <div>
+              <div class="flex justify-between items-end mb-1"><label class="block text-[10px] font-bold text-slate-500 uppercase">Nombre Cliente</label><button type="button" onclick="window.abrirModalClientes()" class="text-[10px] text-primary-600 font-bold flex items-center gap-1"><i class="w-3.5 h-3.5" data-lucide="search"></i> Buscar</button></div>
+              <input type="text" id="form-nombre" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm" oninput="window.sugerirHistorialCliente(this.value)" required>
+              <div id="historial-cliente-preview" class="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 hidden"></div>
+            </div>
+            <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Teléfono</label><input type="text" id="form-telefono" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm"></div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 border-b border-slate-200 pb-6">
+            <div class="lg:col-span-5 space-y-4">
+              <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Categoría</label><select id="form-tipo-dispositivo" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm" onchange="window.renderChecklistDinamico()"></select></div>
+              <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Modelo</label><input type="text" id="form-dispositivo" class="w-full rounded border border-slate-300 py-2.5 px-3 text-sm" required></div>
+              <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Bloqueo</label>
+                <div class="flex gap-2 mb-3">
+                  <button type="button" id="btn-lock-ninguno" onclick="window.setTipoBloqueo('ninguno')" class="flex-1 py-1.5 border border-primary-500 bg-primary-50 text-primary-700 text-xs font-bold rounded shadow-sm">No</button>
+                  <button type="button" id="btn-lock-pin" onclick="window.setTipoBloqueo('pin')" class="flex-1 py-1.5 border border-slate-300 bg-white text-xs font-medium rounded text-slate-600">PIN</button>
+                  <button type="button" id="btn-lock-patron" onclick="window.setTipoBloqueo('patron')" class="flex-1 py-1.5 border border-slate-300 bg-white text-xs font-medium rounded text-slate-600">Patrón</button>
+                </div>
+                <div id="group-lock-pin" class="hidden"><input type="text" id="form-lock-pin-val" class="w-full rounded border border-slate-300 py-2 px-3 text-sm text-center" placeholder="Clave"></div>
+                <div id="group-lock-patron" class="hidden space-y-2">
+                  <div class="flex justify-between items-center"><span class="text-[10px] text-slate-500 font-bold">Patrón</span><button type="button" onclick="window.limpiarPatronCanvas()" class="text-[10px] text-red-600">Limpiar</button></div>
+                  <canvas id="canvas-patron" class="w-full h-32 bg-slate-50 border border-slate-300 rounded cursor-crosshair touch-none"></canvas>
+                  <input type="hidden" id="form-lock-patron-val">
+                </div>
+              </div>
+            </div>
+            <div class="lg:col-span-7 space-y-4">
+              <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Recepción Física</label><div id="checklist-ingreso-container" class="grid grid-cols-2 gap-y-2 gap-x-4 bg-slate-50 border border-slate-200 rounded-lg p-3 min-h-[100px] text-xs"></div></div>
+              <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Motivo / Fallo</label><textarea id="form-obs" class="w-full rounded border border-slate-300 py-2 px-3 text-sm h-24"></textarea></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 border border-slate-200 p-4 rounded-lg">
+             <div class="space-y-3">
+               <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Decisión Taller</label><select id="form-decision" class="w-full rounded border border-slate-300 py-2 px-2 text-sm"><option value="T">Taller (Diagnóstico)</option><option value="SI">Aprobado</option><option value="NO">Rechazado</option></select></div>
+               <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado</label><select id="form-estado" class="w-full rounded border border-slate-300 py-2 px-2 text-sm"></select></div>
+             </div>
+             <div class="space-y-3">
+               <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Total (₡)</label><input type="number" id="form-presupuesto" class="w-full rounded border border-slate-300 py-2 px-3 text-sm" placeholder="Pendiente" oninput="window.calcularSaldoPendiente()"></div>
+               <div><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pago</label><select id="form-pago" class="w-full rounded border border-slate-300 py-2 px-2 text-sm"><option value="PD">Pendiente</option><option value="EF">Efectivo</option><option value="TD">Tarjeta</option><option value="TR">Transferencia</option></select></div>
+             </div>
+             <div class="md:col-span-2 bg-white border border-slate-200 rounded p-4 flex flex-col justify-center">
+                <div class="flex justify-between items-center mb-3"><label class="text-[10px] font-bold text-slate-500 uppercase">Abono (₡)</label><input type="number" id="form-abono" class="w-32 rounded border border-slate-300 py-1.5 px-2 text-sm text-right" placeholder="0" oninput="window.calcularSaldoPendiente()"></div>
+                <div class="flex justify-between items-center border-t border-slate-100 pt-3"><label class="text-[10px] font-bold text-slate-500 uppercase">Saldo</label><input type="text" id="form-saldo-pendiente" class="w-32 bg-transparent text-lg font-black text-amber-600 text-right" readonly value="₡0"></div>
+             </div>
+          </div>
+
+          <div class="flex gap-3 justify-end pt-2">
+            <button type="button" class="px-5 py-2.5 rounded border border-slate-300 font-semibold" onclick="window.cerrarModalOrden()">Cancelar</button>
+            <button type="submit" class="px-6 py-2.5 rounded bg-primary-600 text-white font-bold shadow-sm flex items-center gap-2"><i class="w-4 h-4" data-lucide="save"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  
+  <!-- MODAL DE CLIENTES -->
+  <div id="modal-clientes" class="fixed inset-0 z-[70] hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl">
+      <div class="px-5 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50"><h3 class="font-bold flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="users"></i> Clientes</h3><button onclick="window.cerrarModalClientes()"><i class="w-5 h-5" data-lucide="x"></i></button></div>
+      <div class="p-5 flex-1 overflow-y-auto">
+        <div class="bg-slate-50 border border-slate-200 p-3 rounded-lg mb-5">
+          <h4 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Nuevo Cliente</h4>
+          <input type="text" id="new-cli-nombre" class="w-full rounded border border-slate-300 py-2 px-3 text-sm mb-2" placeholder="Nombre completo">
+          <input type="text" id="new-cli-telefono" class="w-full rounded border border-slate-300 py-2 px-3 text-sm mb-2" placeholder="Teléfono">
+          <button onclick="window.guardarNuevoCliente()" class="w-full py-2 rounded bg-primary-600 text-white font-bold text-sm">Guardar Cliente</button>
+        </div>
+        <input type="text" id="search-clientes" oninput="window.debouncedRenderListaClientes()" class="w-full rounded border border-slate-300 py-2 px-3 text-sm mb-3" placeholder="Buscar...">
+        <div id="lista-clientes-container" class="space-y-1.5 max-h-48 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL AGREGAR PRODUCTO (INVENTARIO) -->
+  <div id="modal-producto" class="fixed inset-0 z-[70] hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+      <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="package-plus"></i> Nuevo Producto</h3>
+      <div class="space-y-3">
+         <input type="text" id="prod-nombre" class="w-full border border-slate-300 rounded p-2 text-sm" placeholder="Nombre del repuesto/accesorio">
+         <div class="flex gap-3">
+           <input type="number" id="prod-precio" class="w-1/2 border border-slate-300 rounded p-2 text-sm" placeholder="Precio (₡)">
+           <input type="number" id="prod-stock" class="w-1/2 border border-slate-300 rounded p-2 text-sm" placeholder="Stock Inicial">
+         </div>
+         <div class="flex justify-end gap-2 mt-4">
+           <button onclick="window.cerrarModalProducto()" class="px-4 py-2 border rounded text-sm">Cancelar</button>
+           <button onclick="window.guardarProducto()" class="px-4 py-2 bg-primary-600 text-white rounded text-sm font-bold">Guardar</button>
+         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAVEGACIÓN LATERAL (MENÚS DE LA BARRA AZUL) -->
+  <aside id="sidebar" class="w-64 bg-slate-900 text-slate-300 flex-col hidden md:flex absolute md:relative z-50 h-full transform -translate-x-full md:translate-x-0 shrink-0 shadow-xl">
+    <div class="h-14 flex items-center px-4 border-b border-slate-800 justify-between bg-slate-950">
+      <div class="flex items-center gap-2 text-white font-bold text-lg"><i class="w-5 h-5 text-primary-500" data-lucide="monitor-smartphone"></i> NOVA-TEC</div>
+      <button class="md:hidden text-slate-400 hover:text-white" onclick="window.toggleSidebar()"><i class="w-5 h-5" data-lucide="x"></i></button>
+    </div>
+    <div class="p-4 border-b border-slate-800">
+      <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Sucursal</label>
+      <select id="selector-sucursal-global" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm font-semibold text-white outline-none" onchange="window.cambiarSucursalGlobal(this.value)"></select>
+    </div>
+    <nav class="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 ml-2 mt-1">Gestión Principal</div>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition text-slate-300 hover:bg-slate-800" onclick="window.changeTab('tab-orders')"><i class="w-4 h-4" data-lucide="file-text"></i> Recepción y Órdenes</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition text-slate-300 hover:bg-slate-800" onclick="window.changeTab('tab-pos')"><i class="w-4 h-4" data-lucide="shopping-cart"></i> Punto de Venta</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition text-slate-300 hover:bg-slate-800" onclick="window.changeTab('tab-repair-detail')"><i class="w-4 h-4" data-lucide="wrench"></i> Taller Técnico</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition text-slate-300 hover:bg-slate-800" onclick="window.changeTab('tab-inventory')"><i class="w-4 h-4" data-lucide="package"></i> Inventario</button>
+      <button class="tab-btn w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition text-slate-300 hover:bg-slate-800" onclick="window.changeTab('tab-config')"><i class="w-4 h-4" data-lucide="settings"></i> Ajustes</button>
+    </nav>
+  </aside>
+  <div id="sidebar-overlay" class="fixed inset-0 bg-slate-900/60 z-40 hidden md:hidden backdrop-blur-sm" onclick="window.toggleSidebar()"></div>
+
+  <!-- AREA PRINCIPAL (DERECHA) -->
+  <div id="app-main-view" class="flex-1 flex flex-col h-full hidden relative overflow-hidden bg-slate-100">
+    <header class="bg-white border-b border-slate-200 h-14 flex items-center justify-between px-4 lg:px-6 z-30 shrink-0 shadow-sm">
+      <div class="flex items-center gap-3">
+        <button class="md:hidden text-slate-500 hover:text-slate-900 p-1 rounded hover:bg-slate-100 transition" onclick="window.toggleSidebar()"><i class="w-6 h-6" data-lucide="menu"></i></button>
+        <h2 id="top-breadcrumb" class="text-sm font-bold text-slate-800 uppercase tracking-wide">Recepción y Órdenes</h2>
+      </div>
+      <div class="flex items-center gap-4">
+        <span id="badge-rol-activo" class="text-xs font-semibold text-primary-700 bg-primary-50 px-2.5 py-1 rounded border border-primary-200">Rol: Administrador</span>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-4 lg:p-6">
+      <!-- PESTAÑA: ÓRDENES -->
+      <section id="tab-orders" class="view-panel block space-y-4">
+        <div class="bg-white border border-slate-200 p-4 rounded-lg shadow-sm flex flex-col lg:flex-row gap-3 items-end">
+          <div class="flex-1 relative flex gap-2 w-full">
+            <div class="flex-1 relative">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Buscar Orden</label>
+                <input type="text" id="inp-search" class="w-full rounded border border-slate-300 py-1.5 pl-3 pr-3 text-sm" oninput="window.debouncedRenderHistorial()" placeholder="Orden o Cliente...">
+            </div>
+            <button onclick="window.abrirEscaner()" class="mt-5 px-3 rounded bg-slate-100 border border-slate-300"><i class="w-5 h-5" data-lucide="camera"></i></button>
+          </div>
+          <div class="w-full lg:w-36"><label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado</label><select id="filter-estado" class="w-full rounded border border-slate-300 py-1.5 px-2 text-sm" onchange="window.renderHistorial()"><option value="TODOS">Todos</option></select></div>
+          <div class="flex gap-2 w-full lg:w-auto mt-2 lg:mt-0">
+            <button class="flex-1 py-1.5 px-4 rounded bg-emerald-600 text-white font-bold text-sm shadow-sm flex items-center justify-center gap-2" onclick="window.crearNuevaOrden()"><i class="w-4 h-4" data-lucide="plus"></i> Nueva Orden</button>
+          </div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-x-auto">
+          <table class="w-full text-left text-sm whitespace-nowrap">
+            <thead class="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase">
+              <tr><th class="px-4 py-3">Ord</th><th class="px-4 py-3">Cliente</th><th class="px-4 py-3">Equipo</th><th class="px-4 py-3">Monto / Saldo</th><th class="px-4 py-3">Decisión</th><th class="px-4 py-3">Estado</th><th class="px-4 py-3 text-right">Acciones</th></tr>
+            </thead>
+            <tbody id="tabla-ordenes-body" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PESTAÑA: PUNTO DE VENTA -->
+      <section id="tab-pos" class="view-panel hidden h-full">
+        <div class="flex flex-col lg:flex-row gap-4 h-[calc(100vh-8rem)]">
+          <!-- Cuadricula Productos -->
+          <div class="flex-1 flex flex-col bg-white border border-slate-200 rounded-lg shadow-sm p-4 h-full">
+            <div class="flex gap-2 mb-4">
+               <input type="text" id="pos-search-input" oninput="window.renderPosGrid()" placeholder="Buscar producto para vender..." class="flex-1 border border-slate-300 rounded p-2 text-sm">
+            </div>
+            <div id="pos-grid-container" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto flex-1 content-start">
+               <!-- Productos se renderizan aquí -->
+            </div>
+          </div>
+          <!-- Carrito de Compras -->
+          <div class="w-full lg:w-80 flex flex-col bg-slate-50 border border-slate-200 rounded-lg shadow-sm h-full shrink-0">
+             <div class="p-4 border-b border-slate-200 bg-white rounded-t-lg"><h3 class="font-bold flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="shopping-bag"></i> Carrito Actual</h3></div>
+             <div id="pos-cart-items" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+             <div class="p-4 bg-white border-t border-slate-200 rounded-b-lg">
+                <div class="flex justify-between items-center font-bold text-lg mb-4 text-slate-800"><span>Total a Cobrar:</span><span id="pos-cart-total" class="text-emerald-600">₡0</span></div>
+                <button onclick="window.procesarVentaPos()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded shadow-sm transition">Cobrar Venta</button>
+                <button onclick="window.limpiarCarrito()" class="w-full py-2 mt-2 text-slate-500 text-xs font-semibold hover:text-slate-700">Vaciar Carrito</button>
+             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PESTAÑA: INVENTARIO -->
+      <section id="tab-inventory" class="view-panel hidden h-full">
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col h-[calc(100vh-8rem)]">
+          <div class="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+            <h3 class="font-bold text-slate-700 flex items-center gap-2"><i class="w-5 h-5 text-primary-600" data-lucide="package"></i> Control de Stock y Repuestos</h3>
+            <button onclick="window.abrirModalProducto()" class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold rounded shadow-sm transition">Añadir Producto</button>
+          </div>
+          <div class="p-4 border-b border-slate-100">
+             <input type="text" id="inv-search-input" oninput="window.renderTablaInventario()" placeholder="Buscar en inventario..." class="w-full md:w-1/3 border border-slate-300 rounded p-2 text-sm">
+          </div>
+          <div class="flex-1 overflow-auto">
+            <table class="w-full text-left text-sm whitespace-nowrap">
+              <thead class="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase sticky top-0">
+                <tr><th class="px-4 py-3">ID / Ref</th><th class="px-4 py-3">Nombre del Producto</th><th class="px-4 py-3">Precio Venta (₡)</th><th class="px-4 py-3">Stock Disponible</th><th class="px-4 py-3 text-right">Acción</th></tr>
+              </thead>
+              <tbody id="tabla-inventario-body" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- PESTAÑA: TALLER TÉCNICO -->
+      <section id="tab-repair-detail" class="view-panel hidden space-y-4 h-full">
+        <div class="bg-white border border-slate-200 rounded-lg p-8 flex flex-col items-center justify-center text-center h-[calc(100vh-8rem)] shadow-sm">
+          <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4"><i class="w-8 h-8 text-primary-400" data-lucide="wrench"></i></div>
+          <h3 class="text-lg font-bold text-slate-700">Taller Técnico</h3>
+          <p class="text-sm text-slate-500 mt-2 max-w-md">Para gestionar las reparaciones, ingresa a través del botón editar en el panel de Órdenes principales.</p>
+        </div>
+      </section>
+
+      <!-- PESTAÑA: AJUSTES -->
+      <section id="tab-config" class="view-panel hidden space-y-4 h-full">
+        <div class="bg-white border border-slate-200 rounded-lg p-8 flex flex-col items-center justify-center text-center h-[calc(100vh-8rem)] shadow-sm">
+          <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4"><i class="w-8 h-8 text-primary-400" data-lucide="settings"></i></div>
+          <h3 class="text-lg font-bold text-slate-700">Ajustes del Sistema</h3>
+          <p class="text-sm text-slate-500 mt-2 max-w-md">Aquí se ubicarán las configuraciones de empresa, sucursales y gestión de usuarios (en desarrollo).</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    try {
+        window.$ = id => document.getElementById(id);
+        
+        window.toast = (txt, type="green") => {
+            const m = window.$('toast-msg'), t = window.$('toast-text'), ic = window.$('toast-icon'); if(!m)return;
+            t.textContent = txt;
+            ic.innerHTML = type === "green" ? '<i class="w-5 h-5 text-emerald-600" data-lucide="check-circle"></i>' : '<i class="w-5 h-5 text-amber-500" data-lucide="info"></i>';
+            m.className = `fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-0 opacity-100 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white`;
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+            setTimeout(() => { m.className = `fixed bottom-6 right-6 z-[12000] transition-all duration-300 transform translate-y-12 opacity-0 flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border border-slate-200 bg-white`; }, 3000);
+        };
+
+        window.cfg = (k, v) => { 
+          try {
+            const key = 'novatec_erp_' + k;
+            if(v !== undefined) { localStorage.setItem(key, JSON.stringify(v)); return v; } 
+            const d = localStorage.getItem(key); return d ? JSON.parse(d) : null; 
+          } catch(e) { return v !== undefined ? v : null; }
+        };
+        
+        window.quitaAcentos = str => String(str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+        // DATOS MAESTROS
+        window.todasOrdenes = []; window.todosClientes = []; window.inventarioGlobal = []; window.carritoVenta = [];
+        window.colaboradores = []; window.estadosOrden = []; window.sucursales = []; window.sucursalActiva = "";
+        window.CHECKLIST_TEMPLATES = { "Teléfono": ["Lente rayado","Equipo mojado","No enciende","Pantalla rota"], "Computadora": ["Cargador","No enciende"] };
+
+        window.cargarDatos = () => {
+            window.todasOrdenes = window.cfg('ordenes') || [];
+            window.todosClientes = window.cfg('clientes') || [];
+            window.inventarioGlobal = window.cfg('inventario') || [
+               { id: 101, nombre: 'Pantalla iPhone 13', precio: 45000, stock: 5 },
+               { id: 102, nombre: 'Cable USB-C Carga Rápida', precio: 5000, stock: 20 },
+               { id: 103, nombre: 'Batería Samsung S22', precio: 25000, stock: 3 }
+            ];
+            window.colaboradores = window.cfg('colaboradores') || ['Valeria', 'Noelia', 'Alonso'];
+            window.estadosOrden = window.cfg('estados') || ['Pendiente', 'Entregado', 'Sin solución'];
+            window.sucursales = window.cfg('sucursales') || ['Nova-Tec Puriscal'];
+            window.sucursalActiva = window.cfg('sucursal_activa') || window.sucursales[0];
+        };
+
+        window.procesarLogin = () => {
+            const pass = window.$('login-password-field').value.trim();
+            if (pass==="15271527" || pass==="5678" || pass==="9000") {
+                window.$('login-overlay').style.display = 'none'; 
+                window.$('app-main-view').classList.remove('hidden');
+                window.toast("Acceso Autorizado", "green");
+                window.renderHistorial(); 
+                window.changeTab('tab-orders');
+            } else { window.toast("Clave incorrecta", "amber"); }
+        };
+
+        window.abrirPortal = () => window.$('portal-view').classList.replace('hidden','flex');
+        window.cerrarPortal = () => window.$('portal-view').classList.replace('flex','hidden');
+
+        window.changeTab = id => { 
+          document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden')); 
+          document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('text-primary-700', 'bg-primary-50'); b.classList.add('text-slate-300'); }); 
+          if(window.$(id)) window.$(id).classList.remove('hidden'); 
+          const tb = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(id)); 
+          if (tb) { tb.classList.add('text-primary-700', 'bg-primary-50'); tb.classList.remove('text-slate-300'); window.$('top-breadcrumb').textContent = tb.textContent.trim(); } 
+          if(window.innerWidth < 768) { window.$('sidebar').classList.add('-translate-x-full'); window.$('sidebar-overlay').classList.add('hidden'); } 
+          
+          if(id === 'tab-inventory') window.renderTablaInventario();
+          if(id === 'tab-pos') window.renderPosGrid();
+        };
+
+        window.toggleSidebar = () => { window.$('sidebar').classList.toggle('-translate-x-full'); window.$('sidebar-overlay').classList.toggle('hidden'); };
+
+        window.inicializarSelects = () => {
+            if(window.$('selector-sucursal-global')) window.$('selector-sucursal-global').innerHTML = window.sucursales.map(s => `<option value="${s}">${s}</option>`).join('');
+            if(window.$('form-sucursal')) window.$('form-sucursal').innerHTML = window.sucursales.map(s => `<option value="${s}">${s}</option>`).join('');
+            if(window.$('form-recepcionista')) window.$('form-recepcionista').innerHTML = window.colaboradores.map(c => `<option value="${c}">${c}</option>`).join('');
+            if(window.$('form-estado')) window.$('form-estado').innerHTML = window.estadosOrden.map(e => `<option value="${e}">${e}</option>`).join('');
+            if(window.$('form-tipo-dispositivo')) { window.$('form-tipo-dispositivo').innerHTML = Object.keys(window.CHECKLIST_TEMPLATES).map(c => `<option value="${c}">${c}</option>`).join(''); window.renderChecklistDinamico(); }
+        };
+
+        window.renderHistorial = () => { 
+          const i=window.$('inp-search'), fe=window.$('filter-estado'), b=window.$('tabla-ordenes-body'); if(!b)return; 
+          const sv=window.quitaAcentos(i?i.value:''), eVal=fe?fe.value:'TODOS';
+          const res=window.todasOrdenes.filter(o=>{ return (window.quitaAcentos(o.nombre).includes(sv)||window.quitaAcentos(String(o.numero)).includes(sv)) && (eVal==='TODOS'||o.estado===eVal); }); 
+          if(!res.length){b.innerHTML=`<tr><td colspan="7" class="px-4 py-6 text-center text-xs text-slate-500">Sin registros</td></tr>`;return;} 
+          b.innerHTML=res.map(o=>{ 
+            const tot=o.presupuesto==="Pendiente"?"Pend.":'₡'+parseInt(o.presupuesto||0).toLocaleString('en-US'); 
+            return `<tr class="hover:bg-slate-50 border-b border-slate-100"><td class="px-4 py-3 font-bold text-primary-600">${o.numero}</td><td class="px-4 py-3 font-medium">${o.nombre}</td><td class="px-4 py-3 text-xs">${o.dispositivo}</td><td class="px-4 py-3 font-bold">${tot}</td><td class="px-4 py-3"><span class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100">${o.decision}</span></td><td class="px-4 py-3"><span class="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700">${o.estado}</span></td><td class="px-4 py-3 text-right">
+                <button class="px-2 py-1.5 rounded bg-green-500 text-white hover:bg-green-600 text-[10px] font-bold mr-1 flex-inline items-center" onclick="window.enviarWhatsApp('${o.numero}')">WA</button>
+                <button class="px-2 py-1.5 rounded border border-slate-200 hover:bg-slate-100 text-[10px] font-bold" onclick="window.imprimirBoletaOrden('${o.numero}')">IMP</button>
+            </td></tr>`; 
+          }).join(''); 
+        };
+
+        window.debouncedRenderHistorial = () => { if(window.dh) clearTimeout(window.dh); window.dh = setTimeout(window.renderHistorial, 300); };
+
+        window.enviarWhatsApp = (num) => {
+            const orden = window.todasOrdenes.find(o => String(o.numero) === String(num));
+            if(!orden || !orden.telefono) return window.toast("Esta orden no tiene un número de teléfono válido registrado", "amber");
+            
+            // Limpia el número y añade código de Costa Rica (+506) si tiene 8 dígitos
+            let tel = orden.telefono.replace(/\D/g,'');
+            if (tel.length === 8) tel = '506' + tel;
+            
+            const msj = `Hola ${orden.nombre}, te contactamos de Nova-Tec. Tu orden #${orden.numero} por el equipo ${orden.dispositivo} se encuentra en estado: ${orden.estado}.`;
+            const url = `https://wa.me/${tel}?text=${encodeURIComponent(msj)}`;
+            window.open(url, '_blank');
+        };
+
+        window.crearNuevaOrden = () => {
+            window.$('form-orden-trabajo').reset(); window.$('form-edit-idx').value = '';
+            window.$('form-numero').value = Math.floor(Math.random() * 90000) + 10000;
+            window.$('form-fecha-original').value = new Date().toISOString();
+            window.setTipoBloqueo('ninguno'); window.calcularSaldoPendiente();
+            window.$('modal-editar-orden').classList.replace('hidden', 'flex');
+        };
+
+        window.cerrarModalOrden = () => window.$('modal-editar-orden').classList.replace('flex', 'hidden');
+
+        window.procesarFormularioOrden = e => {
+            e.preventDefault();
+            const n = { numero: window.$('form-numero').value, nombre: window.$('form-nombre').value, telefono: window.$('form-telefono').value, dispositivo: window.$('form-dispositivo').value, obs: window.$('form-obs').value, presupuesto: window.$('form-presupuesto').value || "Pendiente", abono: window.$('form-abono').value || 0, estado: window.$('form-estado').value, decision: window.$('form-decision').value, fecha: window.$('form-fecha-original').value };
+            window.todasOrdenes.unshift(n); window.cfg('ordenes', window.todasOrdenes); 
+            window.cerrarModalOrden(); window.renderHistorial(); window.toast("Orden guardada exitosamente");
+        };
+
+        window.calcularSaldoPendiente = () => {
+            const p = parseFloat(window.$('form-presupuesto').value) || 0, a = parseFloat(window.$('form-abono').value) || 0;
+            window.$('form-saldo-pendiente').value = p > 0 ? `₡${Math.max(0, p - a).toLocaleString()}` : 'Pendiente';
+        };
+
+        window.setTipoBloqueo = t => {
+            window.tipoBloqueoActual = t;
+            ['ninguno', 'pin', 'patron'].forEach(x => { const b = window.$(`btn-lock-${x}`); if(b) b.className = (x===t) ? "flex-1 py-1.5 border border-primary-500 bg-primary-50 text-primary-700 text-xs font-bold rounded shadow-sm" : "flex-1 py-1.5 border border-slate-300 bg-white text-xs font-medium rounded text-slate-600"; });
+            window.$('group-lock-pin').classList.toggle('hidden', t !== 'pin'); window.$('group-lock-patron').classList.toggle('hidden', t !== 'patron');
+        };
+
+        window.limpiarPatronCanvas = () => { const canvas = window.$('canvas-patron'); if(canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); };
+        window.renderChecklistDinamico = () => { const cat = window.$('form-tipo-dispositivo').value, c = window.$('checklist-ingreso-container'); if(c && window.CHECKLIST_TEMPLATES[cat]) c.innerHTML = window.CHECKLIST_TEMPLATES[cat].map(i => `<label class="flex items-center gap-2"><input type="checkbox" class="w-3 h-3 text-primary-600 rounded"><span class="text-slate-700">${i}</span></label>`).join(''); };
+        window.abrirEscaner = () => window.$('scanner-modal').classList.replace('hidden', 'flex');
+        window.cerrarEscaner = () => window.$('scanner-modal').classList.replace('flex', 'hidden');
+
+        window.abrirModalClientes = () => window.$('modal-clientes').classList.replace('hidden', 'flex');
+        window.cerrarModalClientes = () => window.$('modal-clientes').classList.replace('flex', 'hidden');
+        window.sugerirHistorialCliente = (val) => { const preview = window.$('historial-cliente-preview'); if (val && val.length > 2) { preview.classList.remove('hidden'); preview.innerHTML = `Sugerencia: Buscando...`; } else { preview.classList.add('hidden'); } };
+        window.guardarNuevoCliente = () => { window.todosClientes.push({nombre: window.$('new-cli-nombre').value, telefono: window.$('new-cli-telefono').value}); window.cfg('clientes', window.todosClientes); window.cerrarModalClientes(); window.toast("Cliente guardado"); };
+
+        window.imprimirBoletaOrden = num => { window.toast("Simulando impresión para la orden "+num); };
+
+        window.renderTablaInventario = () => {
+           const b = window.$('tabla-inventario-body'), i = window.$('inv-search-input'); if(!b) return;
+           const search = window.quitaAcentos(i?i.value:'');
+           const filtrados = window.inventarioGlobal.filter(p => window.quitaAcentos(p.nombre).includes(search) || String(p.id).includes(search));
+           if(!filtrados.length) { b.innerHTML = `<tr><td colspan="5" class="px-4 py-4 text-center text-xs text-slate-500">No hay productos</td></tr>`; return; }
+           b.innerHTML = filtrados.map(p => `
+              <tr class="hover:bg-slate-50 border-b border-slate-100">
+                 <td class="px-4 py-3 font-mono text-xs text-slate-500">#${p.id}</td>
+                 <td class="px-4 py-3 font-bold text-slate-800">${p.nombre}</td>
+                 <td class="px-4 py-3 text-emerald-600 font-bold">₡${p.precio.toLocaleString('en-US')}</td>
+                 <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs font-bold ${p.stock<5?'bg-red-50 text-red-600':'bg-slate-100 text-slate-700'}">${p.stock} unid.</span></td>
+                 <td class="px-4 py-3 text-right"><button onclick="window.eliminarProducto(${p.id})" class="text-red-500 hover:text-red-700"><i class="w-4 h-4" data-lucide="trash-2"></i></button></td>
+              </tr>
+           `).join('');
+           if(typeof lucide !== 'undefined') lucide.createIcons();
+        };
+
+        window.abrirModalProducto = () => { window.$('prod-nombre').value=''; window.$('prod-precio').value=''; window.$('prod-stock').value=''; window.$('modal-producto').classList.replace('hidden', 'flex'); };
+        window.cerrarModalProducto = () => window.$('modal-producto').classList.replace('flex', 'hidden');
+        window.guardarProducto = () => {
+           const n = window.$('prod-nombre').value, p = parseInt(window.$('prod-precio').value), s = parseInt(window.$('prod-stock').value);
+           if(!n || isNaN(p) || isNaN(s)) return window.toast("Llene todos los datos", "amber");
+           window.inventarioGlobal.push({ id: Math.floor(Math.random()*9000)+1000, nombre: n, precio: p, stock: s });
+           window.cfg('inventario', window.inventarioGlobal);
+           window.cerrarModalProducto(); window.renderTablaInventario(); window.renderPosGrid(); window.toast("Producto Agregado");
+        };
+        window.eliminarProducto = (id) => { window.inventarioGlobal = window.inventarioGlobal.filter(p=>p.id!==id); window.cfg('inventario', window.inventarioGlobal); window.renderTablaInventario(); };
+
+        window.renderPosGrid = () => {
+           const b = window.$('pos-grid-container'), i = window.$('pos-search-input'); if(!b) return;
+           const search = window.quitaAcentos(i?i.value:'');
+           const filtrados = window.inventarioGlobal.filter(p => window.quitaAcentos(p.nombre).includes(search) && p.stock > 0);
+           b.innerHTML = filtrados.map(p => `
+              <div class="border border-slate-200 rounded-lg p-3 hover:shadow-md transition cursor-pointer flex flex-col justify-between bg-slate-50" onclick="window.agregarAlCarrito(${p.id})">
+                 <div class="text-sm font-bold text-slate-800 leading-tight mb-2">${p.nombre}</div>
+                 <div class="flex justify-between items-end mt-2"><span class="text-xs text-slate-500 font-medium">Stock: ${p.stock}</span><span class="text-primary-700 font-black">₡${p.precio.toLocaleString()}</span></div>
+              </div>
+           `).join('');
+        };
+
+        window.agregarAlCarrito = (id) => {
+           const prod = window.inventarioGlobal.find(p=>p.id===id); if(!prod || prod.stock <= 0) return;
+           const idx = window.carritoVenta.findIndex(i=>i.id===id);
+           if(idx >= 0) { if(window.carritoVenta[idx].cant < prod.stock) window.carritoVenta[idx].cant++; else window.toast("Stock máximo alcanzado", "amber"); }
+           else { window.carritoVenta.push({...prod, cant: 1}); }
+           window.renderCarrito();
+        };
+
+        window.renderCarrito = () => {
+           const b = window.$('pos-cart-items'), t = window.$('pos-cart-total'); if(!b) return;
+           let total = 0;
+           if(!window.carritoVenta.length) { b.innerHTML = `<div class="text-center text-xs text-slate-400 py-8">Carrito vacío</div>`; t.textContent = "₡0"; return; }
+           b.innerHTML = window.carritoVenta.map((item, idx) => {
+              const subtotal = item.cant * item.precio; total += subtotal;
+              return `<div class="bg-white p-2 rounded border border-slate-200 flex justify-between items-center shadow-sm text-sm"><div class="flex-1"><div class="font-bold text-slate-800 truncate">${item.nombre}</div><div class="text-[10px] text-slate-500">${item.cant}x ₡${item.precio.toLocaleString()}</div></div><div class="font-black text-primary-700 mr-2">₡${subtotal.toLocaleString()}</div><button onclick="window.quitarDelCarrito(${idx})" class="text-red-400 hover:text-red-600 p-1"><i class="w-4 h-4" data-lucide="minus-circle"></i></button></div>`;
+           }).join('');
+           t.textContent = `₡${total.toLocaleString('en-US')}`;
+           if(typeof lucide !== 'undefined') lucide.createIcons();
+        };
+
+        window.quitarDelCarrito = (idx) => { window.carritoVenta.splice(idx, 1); window.renderCarrito(); };
+        window.limpiarCarrito = () => { window.carritoVenta = []; window.renderCarrito(); };
+        
+        window.procesarVentaPos = () => {
+           if(!window.carritoVenta.length) return window.toast("El carrito está vacío", "amber");
+           window.carritoVenta.forEach(c => { const p = window.inventarioGlobal.find(i=>i.id===c.id); if(p) p.stock -= c.cant; });
+           window.cfg('inventario', window.inventarioGlobal);
+           window.limpiarCarrito(); window.renderPosGrid(); window.renderTablaInventario();
+           window.toast("Venta procesada con éxito. Stock actualizado.", "green");
+        };
+
+        document.addEventListener("DOMContentLoaded", () => { 
+            try { 
+                window.cargarDatos(); 
+                window.inicializarSelects();
+                if(typeof lucide !== 'undefined') lucide.createIcons(); 
+            } catch(e) { console.error("Error al iniciar:", e); }
+        });
+
+    } catch (e) {
+      console.error("Error global de aplicación:", e);
+    }
+  </script>
+</body>
+</html>
